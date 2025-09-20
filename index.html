@@ -197,12 +197,16 @@
                 else { await signInAnonymously(auth); }
             });
             fileUploader.addEventListener('change', handleFileSelect);
-            createRoomBtn.addEventListener('click', createRoom);
-            addSignatureBtn.addEventListener('click', openSignatureModal);
-            removeSignatureBtn.addEventListener('click', removeMySignature);
-            downloadBtn.addEventListener('click', downloadSignedDocument);
-            copyLinkBtn.addEventListener('click', copyShareLink);
-            closeDeadlineAlertBtn.addEventListener('click', () => deadlineAlertModal.classList.add('hidden'));
+            
+            // --- FIX: Use .onclick to avoid event listener conflicts ---
+            createRoomBtn.onclick = createRoom;
+            addSignatureBtn.onclick = openSignatureModal;
+            removeSignatureBtn.onclick = removeMySignature;
+            downloadBtn.onclick = downloadSignedDocument;
+            copyLinkBtn.onclick = copyShareLink;
+            closeDeadlineAlertBtn.onclick = () => deadlineAlertModal.classList.add('hidden');
+            clearSignatureBtn.onclick = clearSignaturePad;
+            confirmSignatureBtn.onclick = confirmSignature;
         });
         
         function handleRouting() {
@@ -376,8 +380,6 @@
             const sigCtx = setupCanvas(signaturePad);
             sigCtx.strokeStyle = '#000000'; sigCtx.lineWidth = 2;
             sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round';
-            clearSignatureBtn.addEventListener('click', clearSignaturePad);
-            confirmSignatureBtn.addEventListener('click', confirmSignature);
         }
         
         function confirmSignature() {
