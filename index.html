@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>多人協作文件簽署工具</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -55,8 +56,8 @@
                 </div>
                 <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 space-y-4">
                     <div>
-                        <p class="mb-4 text-gray-500">請選擇一個圖片檔 (JPG, PNG) 作為您的文件</p>
-                        <input type="file" id="file-uploader" accept="image/png, image/jpeg" class="hidden">
+                        <p class="mb-4 text-gray-500">請選擇一個圖片檔 (JPG, PNG) 或 PDF 檔作為您的文件</p>
+                        <input type="file" id="file-uploader" accept="image/png, image/jpeg, application/pdf" class="hidden">
                         <button onclick="document.getElementById('file-uploader').click()" class="bg-blue-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-600 transition-transform transform hover:scale-105 shadow-md">
                             選擇檔案
                         </button>
@@ -93,6 +94,9 @@
                     <button id="add-signature-btn" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-indigo-700 transition-transform transform hover:scale-105 shadow-lg">
                         新增我的簽名
                     </button>
+                    <button id="remove-signature-btn" class="bg-red-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-red-700 transition-transform transform hover:scale-105 shadow-lg hidden">
+                        移除我的簽名
+                    </button>
                     <button id="download-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-blue-700 transition-transform transform hover:scale-105 shadow-lg">
                         下載文件
                     </button>
@@ -117,6 +121,15 @@
         </div>
     </div>
     
+    <!-- 截止時間提示 Modal -->
+    <div id="deadline-alert-modal" class="modal-overlay hidden">
+        <div class="bg-white rounded-lg shadow-2xl p-8 w-11/12 max-w-sm text-center">
+            <h3 class="text-2xl font-bold mb-4 text-red-600">簽署時間已過</h3>
+            <p class="text-gray-700 mb-6">抱歉，此文件的簽署時間已截止，您無法再新增簽名。</p>
+            <button id="close-deadline-alert" class="bg-blue-500 text-white font-bold py-2 px-8 rounded-lg hover:bg-blue-600">我明白了</button>
+        </div>
+    </div>
+
     <footer class="text-center mt-8 text-gray-500 text-sm">
         <p>&copy; 2025 多人協作文件簽署工具. All rights reserved.</p>
     </footer>
@@ -124,12 +137,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, addDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, onSnapshot, collection, serverTimestamp, deleteDoc, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase 設定 (重要！請換成您自己的設定) ---
-        // 1. 前往 https://console.firebase.google.com/ 建立您的專案
-        // 2. 在專案中新增一個 "網頁" 應用程式
-        // 3. 將 Firebase 提供的設定物件完整貼到下方取代此處的範例
         const firebaseConfig = {
             apiKey: "AIzaSyACheuw4QDEnXbTFduwaXFLIujXBHFhV-Q",
             authDomain: "esignature-987ac.firebaseapp.com",
@@ -139,11 +148,12 @@
             appId: "1:56174346940:web:8f8a664b84109fa849c6b9",
             measurementId: "G-GDYR4F5ZD9"
         };
-        // --- Firebase 設定結束 ---
         
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
 
         let currentUser = null;
 
@@ -155,78 +165,80 @@
         const fileNameDisplay = document.getElementById('file-name');
         const deadlineInput = document.getElementById('deadline-input');
         const createRoomBtn = document.getElementById('create-room-btn');
-        
         const shareLinkInput = document.getElementById('share-link');
         const copyLinkBtn = document.getElementById('copy-link-btn');
         const deadlineDisplay = document.getElementById('deadline-display');
         const documentContainer = document.getElementById('document-container');
         const documentCanvas = document.getElementById('document-canvas');
         const documentCtx = documentCanvas.getContext('2d');
-
         const addSignatureBtn = document.getElementById('add-signature-btn');
+        const removeSignatureBtn = document.getElementById('remove-signature-btn');
         const downloadBtn = document.getElementById('download-btn');
         const deadlinePassedMsg = document.getElementById('deadline-passed-msg');
-
         const signatureModal = document.getElementById('signature-modal');
         const signaturePad = document.getElementById('signature-pad');
         const signatureCtx = signaturePad.getContext('2d');
         const clearSignatureBtn = document.getElementById('clear-signature');
         const confirmSignatureBtn = document.getElementById('confirm-signature');
         const signatureEmptyError = document.getElementById('signature-empty-error');
+        const deadlineAlertModal = document.getElementById('deadline-alert-modal');
+        const closeDeadlineAlertBtn = document.getElementById('close-deadline-alert');
 
         let originalImage = new Image();
         let currentRoomId = null;
-        let unsubscribe = null; // 用於取消 Firestore 監聽
-        let currentSignatures = []; // 用於儲存當前的簽名資料
+        let unsubscribe = null;
+        let currentSignatures = [];
+        let roomDeadline = null;
+        let mySignatureId = null;
 
-        // --- 主邏輯 ---
         document.addEventListener('DOMContentLoaded', () => {
             onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    currentUser = user;
-                    handleRouting();
-                } else {
-                    await signInAnonymously(auth);
-                }
+                if (user) { currentUser = user; handleRouting(); } 
+                else { await signInAnonymously(auth); }
             });
-
             fileUploader.addEventListener('change', handleFileSelect);
             createRoomBtn.addEventListener('click', createRoom);
             addSignatureBtn.addEventListener('click', openSignatureModal);
+            removeSignatureBtn.addEventListener('click', removeMySignature);
             downloadBtn.addEventListener('click', downloadSignedDocument);
             copyLinkBtn.addEventListener('click', copyShareLink);
+            closeDeadlineAlertBtn.addEventListener('click', () => deadlineAlertModal.classList.add('hidden'));
         });
         
         function handleRouting() {
             const params = new URLSearchParams(window.location.search);
             currentRoomId = params.get('room');
-            
             loader.classList.remove('hidden');
             createView.classList.add('hidden');
             roomView.classList.add('hidden');
-
-            if (currentRoomId) {
-                loadRoom(currentRoomId);
-            } else {
-                loader.classList.add('hidden');
-                createView.classList.remove('hidden');
-            }
+            if (currentRoomId) { loadRoom(currentRoomId); } 
+            else { loader.classList.add('hidden'); createView.classList.remove('hidden'); }
         }
 
         async function createRoom() {
-            if (!fileUploader.files[0]) {
-                alert('請先選擇一個檔案');
-                return;
-            }
-            createRoomBtn.disabled = true;
-            createRoomBtn.textContent = '建立中...';
-
             const file = fileUploader.files[0];
-            const reader = new FileReader();
-            reader.onload = async (e) => {
+            if (!file) { alert('請先選擇一個檔案'); return; }
+
+            createRoomBtn.disabled = true;
+            createRoomBtn.textContent = '處理中...';
+
+            try {
+                let imageDataUrl;
+                if (file.type === "application/pdf") {
+                    createRoomBtn.textContent = '處理PDF中...';
+                    imageDataUrl = await renderPdfToImage(file);
+                } else {
+                    imageDataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = e => resolve(e.target.result);
+                        reader.onerror = err => reject(err);
+                        reader.readAsDataURL(file);
+                    });
+                }
+                
                 const roomData = {
                     initiatorId: currentUser.uid,
-                    originalImage: e.target.result,
+                    originalImage: imageDataUrl,
                     createdAt: serverTimestamp(),
                     deadline: deadlineInput.value ? new Date(deadlineInput.value) : null
                 };
@@ -234,9 +246,35 @@
                 const roomsCollection = collection(db, `signing_rooms`);
                 const docRef = await addDoc(roomsCollection, roomData);
                 window.location.search = `?room=${docRef.id}`;
-            };
-            reader.readAsDataURL(file);
+
+            } catch (error) {
+                console.error("建立空間失敗:", error);
+                alert("檔案處理失敗，請稍後再試。");
+                createRoomBtn.disabled = false;
+                createRoomBtn.textContent = '建立簽署空間';
+            }
         }
+        
+        async function renderPdfToImage(file) {
+            const fileReader = new FileReader();
+            return new Promise((resolve, reject) => {
+                fileReader.onload = async (event) => {
+                    try {
+                        const pdf = await pdfjsLib.getDocument({ data: event.target.result }).promise;
+                        const page = await pdf.getPage(1);
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        await page.render({ canvasContext: context, viewport: viewport }).promise;
+                        resolve(canvas.toDataURL('image/png'));
+                    } catch (error) { reject(error); }
+                };
+                fileReader.readAsArrayBuffer(file);
+            });
+        }
+
 
         async function loadRoom(roomId) {
             const roomDocRef = doc(db, `signing_rooms/${roomId}`);
@@ -251,35 +289,46 @@
             const roomData = roomDoc.data();
             originalImage.src = roomData.originalImage;
             originalImage.onload = () => {
-                // *** FIX: Make view visible BEFORE setting up canvas ***
                 loader.classList.add('hidden');
                 roomView.classList.remove('hidden');
-
                 setupDocumentCanvas();
                 
-                const signaturesCollection = collection(db, `signing_rooms/${roomId}/signatures`);
-                if (unsubscribe) unsubscribe();
-                unsubscribe = onSnapshot(signaturesCollection, (snapshot) => {
-                    currentSignatures = snapshot.docs.map(d => d.data());
-                    redrawAllSignatures(currentSignatures);
-                });
-
-                shareLinkInput.value = window.location.href;
-                
-                if(roomData.deadline) {
-                    const deadline = roomData.deadline.toDate();
-                    deadlineDisplay.textContent = deadline.toLocaleString();
-                    if(new Date() > deadline) {
+                if (roomData.deadline) {
+                    roomDeadline = roomData.deadline.toDate();
+                    deadlineDisplay.textContent = roomDeadline.toLocaleString();
+                    if (new Date() > roomDeadline) {
                         addSignatureBtn.disabled = true;
                         addSignatureBtn.classList.add('hidden');
+                        removeSignatureBtn.classList.add('hidden');
                         deadlinePassedMsg.classList.remove('hidden');
                     }
                 }
+
+                const signaturesCollection = collection(db, `signing_rooms/${roomId}/signatures`);
+                if (unsubscribe) unsubscribe();
+                unsubscribe = onSnapshot(signaturesCollection, (snapshot) => {
+                    currentSignatures = snapshot.docs.map(d => ({...d.data(), id: d.id}));
+                    redrawAllSignatures(currentSignatures);
+                    
+                    mySignatureId = null;
+                    const mySig = currentSignatures.find(sig => sig.signerId === currentUser.uid);
+                    if (mySig) {
+                        mySignatureId = mySig.id;
+                        addSignatureBtn.classList.add('hidden');
+                        if (!roomDeadline || new Date() < roomDeadline) {
+                            removeSignatureBtn.classList.remove('hidden');
+                        }
+                    } else if (!roomDeadline || new Date() < roomDeadline) {
+                        addSignatureBtn.classList.remove('hidden');
+                        removeSignatureBtn.classList.add('hidden');
+                    }
+                });
+
+                shareLinkInput.value = window.location.href;
             };
         }
 
         function setupDocumentCanvas() {
-            // Ensure container has width before calculating
             if (documentContainer.clientWidth === 0) return;
             const containerWidth = documentContainer.clientWidth;
             const scale = containerWidth / originalImage.width;
@@ -289,12 +338,8 @@
         }
 
         function redrawAllSignatures(signatures) {
-            // If canvas has no size, setup first
-            if(documentCanvas.width === 0 || documentCanvas.height === 0) {
-                 setupDocumentCanvas();
-            }
-            if(documentCanvas.width === 0) return; // Still no width, exit
-
+            if(documentCanvas.width === 0 || documentCanvas.height === 0) setupDocumentCanvas();
+            if(documentCanvas.width === 0) return;
             documentCtx.clearRect(0, 0, documentCanvas.width, documentCanvas.height);
             documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
             
@@ -305,7 +350,6 @@
                     const x = sigData.x_percent * documentCanvas.width;
                     const y = sigData.y_percent * documentCanvas.height;
                     const width = sigData.width_percent * documentCanvas.width;
-                    // Maintain aspect ratio for height
                     const height = (width / sigImg.width) * sigImg.height;
                     documentCtx.drawImage(sigImg, x, y, width, height);
                 };
@@ -323,31 +367,28 @@
             }
         }
         
-        let signatureDataUrl = null;
-
         function openSignatureModal() {
+            if (roomDeadline && new Date() > roomDeadline) {
+                deadlineAlertModal.classList.remove('hidden');
+                return;
+            }
             signatureModal.classList.remove('hidden');
             const sigCtx = setupCanvas(signaturePad);
-            sigCtx.strokeStyle = '#000000';
-            sigCtx.lineWidth = 2;
-            sigCtx.lineCap = 'round';
-            sigCtx.lineJoin = 'round';
+            sigCtx.strokeStyle = '#000000'; sigCtx.lineWidth = 2;
+            sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round';
             clearSignatureBtn.addEventListener('click', clearSignaturePad);
             confirmSignatureBtn.addEventListener('click', confirmSignature);
         }
-
+        
         function confirmSignature() {
-            if (isCanvasBlank(signaturePad)) {
-                signatureEmptyError.classList.remove('hidden');
-                return;
-            }
+            if (isCanvasBlank(signaturePad)) { signatureEmptyError.classList.remove('hidden'); return; }
             signatureEmptyError.classList.add('hidden');
-            signatureDataUrl = signaturePad.toDataURL('image/png');
+            const signatureDataUrl = signaturePad.toDataURL('image/png');
             signatureModal.classList.add('hidden');
-            addDraggableSignature();
+            addDraggableSignature(signatureDataUrl);
         }
         
-        function addDraggableSignature() {
+        function addDraggableSignature(signatureDataUrl) {
             const draggableSignature = document.createElement('img');
             draggableSignature.src = signatureDataUrl;
             draggableSignature.className = 'absolute top-1/4 left-1/4 w-48 cursor-grab rounded-md dragging';
@@ -364,6 +405,35 @@
             addSignatureBtn.onclick = () => placeSignature(draggableSignature);
         }
         
+        async function placeSignature(element) {
+            const sigRect = element.getBoundingClientRect(); 
+            const canvasRect = documentCanvas.getBoundingClientRect();
+            const signatureData = {
+                signatureDataUrl: element.src,
+                x_percent: (sigRect.left - canvasRect.left) / canvasRect.width,
+                y_percent: (sigRect.top - canvasRect.top) / canvasRect.height,
+                width_percent: sigRect.width / canvasRect.width,
+                signerId: currentUser.uid, 
+                createdAt: serverTimestamp()
+            };
+            const signaturesCollection = collection(db, `signing_rooms/${currentRoomId}/signatures`);
+            await addDoc(signaturesCollection, signatureData);
+            element.remove();
+            addSignatureBtn.textContent = '新增我的簽名'; 
+            addSignatureBtn.onclick = openSignatureModal;
+        }
+
+        async function removeMySignature() {
+            if (!mySignatureId) {
+                alert("找不到您的簽名紀錄。");
+                return;
+            }
+            if (confirm("您確定要移除您的簽名嗎？")) {
+                const docRef = doc(db, `signing_rooms/${currentRoomId}/signatures`, mySignatureId);
+                await deleteDoc(docRef);
+            }
+        }
+
         function makeDraggable(element) {
             let isDragging = false, offsetX, offsetY;
             const startDrag = (e) => {
@@ -386,21 +456,6 @@
             element.addEventListener('touchstart', startDrag); document.addEventListener('touchmove', drag); document.addEventListener('touchend', endDrag);
         }
         
-        async function placeSignature(element) {
-            const sigRect = element.getBoundingClientRect(); const canvasRect = documentCanvas.getBoundingClientRect();
-            const signatureData = {
-                signatureDataUrl: element.src,
-                x_percent: (sigRect.left - canvasRect.left) / canvasRect.width,
-                y_percent: (sigRect.top - canvasRect.top) / canvasRect.height,
-                width_percent: sigRect.width / canvasRect.width,
-                signerId: currentUser.uid, createdAt: serverTimestamp()
-            };
-            const signaturesCollection = collection(db, `signing_rooms/${currentRoomId}/signatures`);
-            await addDoc(signaturesCollection, signatureData);
-            element.remove();
-            addSignatureBtn.textContent = '新增我的簽名'; addSignatureBtn.onclick = openSignatureModal;
-        }
-
         function downloadSignedDocument() {
             const link = document.createElement('a');
             link.download = `signed-document-${currentRoomId}.png`;
@@ -450,7 +505,6 @@
         ['mousemove', 'touchmove'].forEach(evt => signaturePad.addEventListener(evt, draw));
         ['mouseup', 'mouseout', 'touchend'].forEach(evt => signaturePad.addEventListener(evt, () => isDrawing = false));
         
-        // *** FIX: Correctly redraw canvas and signatures on resize ***
         window.addEventListener('resize', () => {
             if (originalImage.src && !roomView.classList.contains('hidden')) {
                 redrawAllSignatures(currentSignatures);
