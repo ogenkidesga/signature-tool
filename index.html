@@ -177,6 +177,7 @@
         let originalImage = new Image();
         let currentRoomId = null;
         let unsubscribe = null; // 用於取消 Firestore 監聽
+        let currentSignatures = []; // 用於儲存當前的簽名資料
 
         // --- 主邏輯 ---
         document.addEventListener('DOMContentLoaded', () => {
@@ -250,16 +251,18 @@
             const roomData = roomDoc.data();
             originalImage.src = roomData.originalImage;
             originalImage.onload = () => {
+                // *** FIX: Make view visible BEFORE setting up canvas ***
+                loader.classList.add('hidden');
+                roomView.classList.remove('hidden');
+
                 setupDocumentCanvas();
                 
                 const signaturesCollection = collection(db, `signing_rooms/${roomId}/signatures`);
                 if (unsubscribe) unsubscribe();
                 unsubscribe = onSnapshot(signaturesCollection, (snapshot) => {
-                    redrawAllSignatures(snapshot.docs.map(d => d.data()));
+                    currentSignatures = snapshot.docs.map(d => d.data());
+                    redrawAllSignatures(currentSignatures);
                 });
-
-                loader.classList.add('hidden');
-                roomView.classList.remove('hidden');
 
                 shareLinkInput.value = window.location.href;
                 
@@ -276,6 +279,8 @@
         }
 
         function setupDocumentCanvas() {
+            // Ensure container has width before calculating
+            if (documentContainer.clientWidth === 0) return;
             const containerWidth = documentContainer.clientWidth;
             const scale = containerWidth / originalImage.width;
             documentCanvas.width = containerWidth;
@@ -284,8 +289,15 @@
         }
 
         function redrawAllSignatures(signatures) {
+            // If canvas has no size, setup first
+            if(documentCanvas.width === 0 || documentCanvas.height === 0) {
+                 setupDocumentCanvas();
+            }
+            if(documentCanvas.width === 0) return; // Still no width, exit
+
             documentCtx.clearRect(0, 0, documentCanvas.width, documentCanvas.height);
             documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
+            
             signatures.forEach(sigData => {
                 const sigImg = new Image();
                 sigImg.src = sigData.signatureDataUrl;
@@ -293,6 +305,7 @@
                     const x = sigData.x_percent * documentCanvas.width;
                     const y = sigData.y_percent * documentCanvas.height;
                     const width = sigData.width_percent * documentCanvas.width;
+                    // Maintain aspect ratio for height
                     const height = (width / sigImg.width) * sigImg.height;
                     documentCtx.drawImage(sigImg, x, y, width, height);
                 };
@@ -436,13 +449,14 @@
         }));
         ['mousemove', 'touchmove'].forEach(evt => signaturePad.addEventListener(evt, draw));
         ['mouseup', 'mouseout', 'touchend'].forEach(evt => signaturePad.addEventListener(evt, () => isDrawing = false));
+        
+        // *** FIX: Correctly redraw canvas and signatures on resize ***
         window.addEventListener('resize', () => {
             if (originalImage.src && !roomView.classList.contains('hidden')) {
-                setupDocumentCanvas();
+                redrawAllSignatures(currentSignatures);
             }
         });
     </script>
 </body>
 </html>
-
 
