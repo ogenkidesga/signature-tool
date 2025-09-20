@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多人協作文件簽署工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        #signature-pad { touch-action: none; }
+        .dragging {
+            opacity: 0.7;
+            cursor: grabbing;
+            border: 2px dashed #3b82f6;
+            z-index: 1000;
+        }
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex flex-col items-center min-h-screen p-4 md:p-8">
+
+    <div class="w-full max-w-5xl bg-white rounded-xl shadow-lg p-6 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">多人協作文件簽署工具</h1>
+            <p class="text-gray-600 mt-2">分享連結，輕鬆收集多人簽名！</p>
+        </header>
+
+        <main id="app" class="space-y-8">
+            <!-- 載入中 -->
+            <div id="loader" class="text-center py-10 hidden">
+                <p class="text-lg font-semibold text-gray-600">載入中，請稍候...</p>
+            </div>
+            
+            <!-- 步驟一：建立簽署空間 -->
+            <div id="create-view">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-lg">1</div>
+                    <h2 class="text-2xl font-bold">上傳文件以建立簽署空間</h2>
+                </div>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 space-y-4">
+                    <div>
+                        <p class="mb-4 text-gray-500">請選擇一個圖片檔 (JPG, PNG) 作為您的文件</p>
+                        <input type="file" id="file-uploader" accept="image/png, image/jpeg" class="hidden">
+                        <button onclick="document.getElementById('file-uploader').click()" class="bg-blue-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-600 transition-transform transform hover:scale-105 shadow-md">
+                            選擇檔案
+                        </button>
+                        <p id="file-name" class="mt-2 text-sm text-gray-500"></p>
+                    </div>
+                     <div>
+                        <label for="deadline-input" class="block mb-2 text-gray-600">設定簽名截止時間 (非必填)</label>
+                        <input type="datetime-local" id="deadline-input" class="p-2 border rounded-md">
+                    </div>
+                    <button id="create-room-btn" class="bg-green-500 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-green-600 transition-transform transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                        建立簽署空間
+                    </button>
+                </div>
+            </div>
+
+            <!-- 步驟二：簽署頁面 -->
+            <div id="room-view" class="hidden">
+                <div class="bg-blue-50 p-4 rounded-lg mb-6 shadow-sm border border-blue-200">
+                    <h2 class="text-xl font-bold mb-2">分享此簽署空間</h2>
+                    <p class="text-sm text-gray-600 mb-2">複製以下連結並傳送給需要簽署的人員：</p>
+                    <div class="flex gap-2">
+                        <input type="text" id="share-link" readonly class="w-full bg-white border border-gray-300 rounded-md p-2 text-sm">
+                        <button id="copy-link-btn" class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors">複製</button>
+                    </div>
+                    <p class="text-sm text-red-600 mt-2 font-semibold">截止時間：<span id="deadline-display">無</span></p>
+                </div>
+            
+                <div id="document-container" class="relative w-full border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 shadow-inner">
+                    <canvas id="document-canvas"></canvas>
+                    <!-- Draggable signature will be appended here by JS -->
+                </div>
+
+                <div id="action-buttons" class="mt-6 text-center space-x-4">
+                    <button id="add-signature-btn" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-indigo-700 transition-transform transform hover:scale-105 shadow-lg">
+                        新增我的簽名
+                    </button>
+                    <button id="download-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-blue-700 transition-transform transform hover:scale-105 shadow-lg">
+                        下載文件
+                    </button>
+                </div>
+                 <p id="deadline-passed-msg" class="text-center text-red-500 font-bold mt-4 hidden">已超過簽署截止時間。</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- 簽名板 Modal -->
+    <div id="signature-modal" class="modal-overlay hidden">
+        <div class="bg-white rounded-lg shadow-2xl p-6 w-11/12 max-w-lg">
+            <h3 class="text-2xl font-bold mb-4 text-center">繪製您的簽名</h3>
+            <div class="bg-gray-50 rounded-lg shadow-inner p-2">
+                 <canvas id="signature-pad" class="w-full h-48 border border-gray-300 rounded-md bg-white"></canvas>
+            </div>
+            <p id="signature-empty-error" class="text-red-500 text-center mt-2 hidden">簽名欄位不可為空白。</p>
+            <div class="flex justify-center gap-4 mt-4">
+                <button id="clear-signature" class="bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-lg hover:bg-gray-300">清除</button>
+                <button id="confirm-signature" class="bg-green-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-600">確認簽名</button>
+            </div>
+        </div>
+    </div>
+    
+    <footer class="text-center mt-8 text-gray-500 text-sm">
+        <p>&copy; 2025 多人協作文件簽署工具. All rights reserved.</p>
+    </footer>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase 設定 (重要！請換成您自己的設定) ---
+        // 1. 前往 https://console.firebase.google.com/ 建立您的專案
+        // 2. 在專案中新增一個 "網頁" 應用程式
+        // 3. 將 Firebase 提供的設定物件完整貼到下方取代此處的範例
+        const firebaseConfig = {
+            apiKey: "AIzaSyACheuw4QDEnXbTFduwaXFLIujXBHFhV-Q",
+            authDomain: "esignature-987ac.firebaseapp.com",
+            projectId: "esignature-987ac",
+            storageBucket: "esignature-987ac.appspot.com",
+            messagingSenderId: "56174346940",
+            appId: "1:56174346940:web:8f8a664b84109fa849c6b9",
+            measurementId: "G-GDYR4F5ZD9"
+        };
+        // --- Firebase 設定結束 ---
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let currentUser = null;
+
+        // --- DOM 元素 ---
+        const loader = document.getElementById('loader');
+        const createView = document.getElementById('create-view');
+        const roomView = document.getElementById('room-view');
+        const fileUploader = document.getElementById('file-uploader');
+        const fileNameDisplay = document.getElementById('file-name');
+        const deadlineInput = document.getElementById('deadline-input');
+        const createRoomBtn = document.getElementById('create-room-btn');
+        
+        const shareLinkInput = document.getElementById('share-link');
+        const copyLinkBtn = document.getElementById('copy-link-btn');
+        const deadlineDisplay = document.getElementById('deadline-display');
+        const documentContainer = document.getElementById('document-container');
+        const documentCanvas = document.getElementById('document-canvas');
+        const documentCtx = documentCanvas.getContext('2d');
+
+        const addSignatureBtn = document.getElementById('add-signature-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const deadlinePassedMsg = document.getElementById('deadline-passed-msg');
+
+        const signatureModal = document.getElementById('signature-modal');
+        const signaturePad = document.getElementById('signature-pad');
+        const signatureCtx = signaturePad.getContext('2d');
+        const clearSignatureBtn = document.getElementById('clear-signature');
+        const confirmSignatureBtn = document.getElementById('confirm-signature');
+        const signatureEmptyError = document.getElementById('signature-empty-error');
+
+        let originalImage = new Image();
+        let currentRoomId = null;
+        let unsubscribe = null; // 用於取消 Firestore 監聽
+
+        // --- 主邏輯 ---
+        document.addEventListener('DOMContentLoaded', () => {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    currentUser = user;
+                    handleRouting();
+                } else {
+                    await signInAnonymously(auth);
+                }
+            });
+
+            fileUploader.addEventListener('change', handleFileSelect);
+            createRoomBtn.addEventListener('click', createRoom);
+            addSignatureBtn.addEventListener('click', openSignatureModal);
+            downloadBtn.addEventListener('click', downloadSignedDocument);
+            copyLinkBtn.addEventListener('click', copyShareLink);
+        });
+        
+        function handleRouting() {
+            const params = new URLSearchParams(window.location.search);
+            currentRoomId = params.get('room');
+            
+            loader.classList.remove('hidden');
+            createView.classList.add('hidden');
+            roomView.classList.add('hidden');
+
+            if (currentRoomId) {
+                loadRoom(currentRoomId);
+            } else {
+                loader.classList.add('hidden');
+                createView.classList.remove('hidden');
+            }
+        }
+
+        async function createRoom() {
+            if (!fileUploader.files[0]) {
+                alert('請先選擇一個檔案');
+                return;
+            }
+            createRoomBtn.disabled = true;
+            createRoomBtn.textContent = '建立中...';
+
+            const file = fileUploader.files[0];
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const roomData = {
+                    initiatorId: currentUser.uid,
+                    originalImage: e.target.result,
+                    createdAt: serverTimestamp(),
+                    deadline: deadlineInput.value ? new Date(deadlineInput.value) : null
+                };
+                
+                const roomsCollection = collection(db, `signing_rooms`);
+                const docRef = await addDoc(roomsCollection, roomData);
+                window.location.search = `?room=${docRef.id}`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function loadRoom(roomId) {
+            const roomDocRef = doc(db, `signing_rooms/${roomId}`);
+            const roomDoc = await getDoc(roomDocRef);
+
+            if (!roomDoc.exists()) {
+                alert('找不到這個簽署空間！');
+                window.location.search = '';
+                return;
+            }
+
+            const roomData = roomDoc.data();
+            originalImage.src = roomData.originalImage;
+            originalImage.onload = () => {
+                setupDocumentCanvas();
+                
+                const signaturesCollection = collection(db, `signing_rooms/${roomId}/signatures`);
+                if (unsubscribe) unsubscribe();
+                unsubscribe = onSnapshot(signaturesCollection, (snapshot) => {
+                    redrawAllSignatures(snapshot.docs.map(d => d.data()));
+                });
+
+                loader.classList.add('hidden');
+                roomView.classList.remove('hidden');
+
+                shareLinkInput.value = window.location.href;
+                
+                if(roomData.deadline) {
+                    const deadline = roomData.deadline.toDate();
+                    deadlineDisplay.textContent = deadline.toLocaleString();
+                    if(new Date() > deadline) {
+                        addSignatureBtn.disabled = true;
+                        addSignatureBtn.classList.add('hidden');
+                        deadlinePassedMsg.classList.remove('hidden');
+                    }
+                }
+            };
+        }
+
+        function setupDocumentCanvas() {
+            const containerWidth = documentContainer.clientWidth;
+            const scale = containerWidth / originalImage.width;
+            documentCanvas.width = containerWidth;
+            documentCanvas.height = originalImage.height * scale;
+            documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
+        }
+
+        function redrawAllSignatures(signatures) {
+            documentCtx.clearRect(0, 0, documentCanvas.width, documentCanvas.height);
+            documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
+            signatures.forEach(sigData => {
+                const sigImg = new Image();
+                sigImg.src = sigData.signatureDataUrl;
+                sigImg.onload = () => {
+                    const x = sigData.x_percent * documentCanvas.width;
+                    const y = sigData.y_percent * documentCanvas.height;
+                    const width = sigData.width_percent * documentCanvas.width;
+                    const height = (width / sigImg.width) * sigImg.height;
+                    documentCtx.drawImage(sigImg, x, y, width, height);
+                };
+            });
+        }
+        
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if(file) {
+                fileNameDisplay.textContent = `已選擇檔案：${file.name}`;
+                createRoomBtn.disabled = false;
+            } else {
+                fileNameDisplay.textContent = '';
+                createRoomBtn.disabled = true;
+            }
+        }
+        
+        let signatureDataUrl = null;
+
+        function openSignatureModal() {
+            signatureModal.classList.remove('hidden');
+            const sigCtx = setupCanvas(signaturePad);
+            sigCtx.strokeStyle = '#000000';
+            sigCtx.lineWidth = 2;
+            sigCtx.lineCap = 'round';
+            sigCtx.lineJoin = 'round';
+            clearSignatureBtn.addEventListener('click', clearSignaturePad);
+            confirmSignatureBtn.addEventListener('click', confirmSignature);
+        }
+
+        function confirmSignature() {
+            if (isCanvasBlank(signaturePad)) {
+                signatureEmptyError.classList.remove('hidden');
+                return;
+            }
+            signatureEmptyError.classList.add('hidden');
+            signatureDataUrl = signaturePad.toDataURL('image/png');
+            signatureModal.classList.add('hidden');
+            addDraggableSignature();
+        }
+        
+        function addDraggableSignature() {
+            const draggableSignature = document.createElement('img');
+            draggableSignature.src = signatureDataUrl;
+            draggableSignature.className = 'absolute top-1/4 left-1/4 w-48 cursor-grab rounded-md dragging';
+            documentContainer.appendChild(draggableSignature);
+            
+            const signatureInitialWidth = documentCanvas.width * 0.25;
+            draggableSignature.style.width = `${signatureInitialWidth}px`;
+            draggableSignature.style.left = `${(documentCanvas.width - signatureInitialWidth) / 2}px`;
+            draggableSignature.style.top = `${documentCanvas.height / 3}px`;
+            
+            makeDraggable(draggableSignature);
+            
+            addSignatureBtn.textContent = '將簽名放置於此';
+            addSignatureBtn.onclick = () => placeSignature(draggableSignature);
+        }
+        
+        function makeDraggable(element) {
+            let isDragging = false, offsetX, offsetY;
+            const startDrag = (e) => {
+                e.preventDefault(); isDragging = true; element.classList.add('dragging');
+                const clientX = e.clientX || e.touches[0].clientX; const clientY = e.clientY || e.touches[0].clientY;
+                offsetX = clientX - element.getBoundingClientRect().left; offsetY = clientY - element.getBoundingClientRect().top;
+            };
+            const drag = (e) => {
+                if (!isDragging) return; e.preventDefault();
+                const containerRect = documentContainer.getBoundingClientRect();
+                const clientX = e.clientX || e.touches[0].clientX; const clientY = e.clientY || e.touches[0].clientY;
+                let newLeft = clientX - containerRect.left - offsetX; let newTop = clientY - containerRect.top - offsetY;
+                if (newLeft < 0) newLeft = 0; if (newTop < 0) newTop = 0;
+                if (newLeft + element.clientWidth > containerRect.width) newLeft = containerRect.width - element.clientWidth;
+                if (newTop + element.clientHeight > containerRect.height) newTop = containerRect.height - element.clientHeight;
+                element.style.left = `${newLeft}px`; element.style.top = `${newTop}px`;
+            };
+            const endDrag = () => { if(isDragging) { isDragging = false; element.classList.remove('dragging'); } };
+            element.addEventListener('mousedown', startDrag); document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag);
+            element.addEventListener('touchstart', startDrag); document.addEventListener('touchmove', drag); document.addEventListener('touchend', endDrag);
+        }
+        
+        async function placeSignature(element) {
+            const sigRect = element.getBoundingClientRect(); const canvasRect = documentCanvas.getBoundingClientRect();
+            const signatureData = {
+                signatureDataUrl: element.src,
+                x_percent: (sigRect.left - canvasRect.left) / canvasRect.width,
+                y_percent: (sigRect.top - canvasRect.top) / canvasRect.height,
+                width_percent: sigRect.width / canvasRect.width,
+                signerId: currentUser.uid, createdAt: serverTimestamp()
+            };
+            const signaturesCollection = collection(db, `signing_rooms/${currentRoomId}/signatures`);
+            await addDoc(signaturesCollection, signatureData);
+            element.remove();
+            addSignatureBtn.textContent = '新增我的簽名'; addSignatureBtn.onclick = openSignatureModal;
+        }
+
+        function downloadSignedDocument() {
+            const link = document.createElement('a');
+            link.download = `signed-document-${currentRoomId}.png`;
+            link.href = documentCanvas.toDataURL('image/png');
+            link.click();
+        }
+        
+        function copyShareLink() {
+            shareLinkInput.select();
+            document.execCommand('copy');
+            copyLinkBtn.textContent = '已複製!';
+            setTimeout(() => { copyLinkBtn.textContent = '複製'; }, 2000);
+        }
+
+        function setupCanvas(canvas) {
+            const dpr = window.devicePixelRatio || 1; const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+            const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); return ctx;
+        }
+        
+        function clearSignaturePad() {
+            signatureCtx.clearRect(0, 0, signaturePad.width, signaturePad.height);
+            signatureEmptyError.classList.add('hidden');
+        }
+
+        function isCanvasBlank(canvas) {
+            return !canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some(channel => channel !== 0);
+        }
+        
+        let isDrawing = false, lastX = 0, lastY = 0;
+        function getPointerPos(canvas, evt) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / (rect.width * (window.devicePixelRatio || 1));
+            const scaleY = canvas.height / (rect.height * (window.devicePixelRatio || 1));
+            const clientX = evt.clientX || evt.touches[0].clientX; const clientY = evt.clientY || evt.touches[0].clientY;
+            return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+        }
+        function draw(e) {
+            if (!isDrawing) return; e.preventDefault();
+            const { x, y } = getPointerPos(signaturePad, e);
+            signatureCtx.beginPath(); signatureCtx.moveTo(lastX, lastY); signatureCtx.lineTo(x, y); signatureCtx.stroke();
+            [lastX, lastY] = [x, y];
+        }
+        ['mousedown', 'touchstart'].forEach(evt => signaturePad.addEventListener(evt, (e) => {
+            isDrawing = true; const pos = getPointerPos(signaturePad, e); [lastX, lastY] = [pos.x, pos.y];
+        }));
+        ['mousemove', 'touchmove'].forEach(evt => signaturePad.addEventListener(evt, draw));
+        ['mouseup', 'mouseout', 'touchend'].forEach(evt => signaturePad.addEventListener(evt, () => isDrawing = false));
+        window.addEventListener('resize', () => {
+            if (originalImage.src && !roomView.classList.contains('hidden')) {
+                setupDocumentCanvas();
+            }
+        });
+    </script>
+</body>
+</html>
+
+
