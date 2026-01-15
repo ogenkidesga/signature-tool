@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多人協作文件簽署工具 (進階版)</title>
+    <title>多人協作文件簽署工具 (高畫質版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,7 +48,6 @@
             display: flex; align-items: center; justify-content: center;
             z-index: 50; backdrop-filter: blur(2px);
         }
-        /* Color Radio Custom Styles */
         .color-radio:checked + label { ring-width: 2px; ring-offset-width: 2px; transform: scale(1.1); }
     </style>
 </head>
@@ -63,7 +62,7 @@
                     <svg class="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                     文件簽署通
                 </h1>
-                <p class="text-xs text-gray-500 mt-1">多人即時協作平台</p>
+                <p class="text-xs text-gray-500 mt-1">高畫質輸出版本</p>
             </div>
 
             <!-- 載入中 -->
@@ -149,12 +148,11 @@
         <main class="flex-1 bg-gray-200 relative overflow-auto flex items-center justify-center p-4">
             <div id="document-container" class="relative bg-white shadow-lg mx-auto select-none">
                 <canvas id="document-canvas" class="block cursor-pointer"></canvas>
-                <!-- 拖曳中的元素會放在這裡 -->
             </div>
         </main>
     </div>
 
-    <!-- 簽名板 Modal -->
+    <!-- 簽名板 Modal (同前) -->
     <div id="signature-modal" class="modal-overlay hidden">
         <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
             <div class="flex justify-between items-center mb-4">
@@ -164,7 +162,6 @@
                 </button>
             </div>
             
-            <!-- 筆觸設定 -->
             <div class="flex items-center justify-between mb-3 bg-gray-50 p-2 rounded-lg">
                 <div class="flex space-x-3">
                     <div class="relative">
@@ -198,7 +195,7 @@
         </div>
     </div>
 
-    <!-- 文字輸入 Modal -->
+    <!-- 文字輸入 Modal (同前) -->
     <div id="text-modal" class="modal-overlay hidden">
         <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
              <div class="flex justify-between items-center mb-4">
@@ -233,8 +230,8 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, onSnapshot, collection, serverTimestamp, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Config
         const firebaseConfig = {
+            // 請將此處替換回您自己的設定 (以下為預設測試用)
             apiKey: "AIzaSyACheuw4QDEnXbTFduwaXFLIujXBHFhV-Q",
   authDomain: "esignature-987ac.firebaseapp.com",
   projectId: "esignature-987ac",
@@ -252,14 +249,13 @@
 
         let currentUser = null;
         let currentRoomId = null;
-        let initiatorId = null; // 發起人 ID
+        let initiatorId = null;
         let originalImage = new Image();
         let roomDeadline = null;
         let currentItems = []; 
         let unsubscribe = null;
-        let editingItemId = null; // 當前正在編輯的物件 ID
+        let editingItemId = null;
 
-        // UI 元素
         const els = {
             loader: document.getElementById('loader'),
             createView: document.getElementById('create-view'),
@@ -282,21 +278,16 @@
         const sigCtx = els.sigPad.getContext('2d');
         let selectedTextColor = '#000000';
 
-        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             onAuthStateChanged(auth, async (user) => {
-                if (user) { 
-                    currentUser = user; 
-                    handleRouting(); 
-                } else { 
-                    await signInAnonymously(auth); 
-                }
+                if (user) { currentUser = user; handleRouting(); } 
+                else { await signInAnonymously(auth); }
             });
 
             els.fileUploader.addEventListener('change', handleFileSelect);
             els.createBtn.onclick = createRoom;
             document.getElementById('copy-link-btn').onclick = copyShareLink;
-            document.getElementById('download-btn').onclick = downloadSignedDocument;
+            document.getElementById('download-btn').onclick = downloadHighResDocument; // 更改下載邏輯
             
             document.getElementById('btn-add-sig').onclick = () => checkDeadline() && openSigModal();
             document.getElementById('btn-add-text').onclick = () => checkDeadline() && openTextModal();
@@ -320,7 +311,6 @@
             
             window.addEventListener('resize', resizeCanvas);
             
-            // 新增：畫布點擊事件 (選取物件)
             els.docCanvas.addEventListener('mousedown', handleCanvasClick);
             els.docCanvas.addEventListener('touchstart', handleCanvasClick);
         });
@@ -393,7 +383,7 @@
             }
 
             const data = roomSnap.data();
-            initiatorId = data.initiatorId; // 儲存發起人 ID
+            initiatorId = data.initiatorId;
             originalImage.src = data.originalImage;
             
             if (data.deadline) {
@@ -415,7 +405,6 @@
 
         function checkDeadline() {
             if (roomDeadline && new Date() > roomDeadline) {
-                // 如果是編輯既有物件的操作，這裡可以另外判斷，但通常截止就是全面截止
                 alert('此文件簽署時間已截止，無法新增或修改內容。');
                 document.getElementById('btn-add-sig').disabled = true;
                 document.getElementById('btn-add-text').disabled = true;
@@ -431,14 +420,15 @@
             unsubscribe = onSnapshot(q, (snapshot) => {
                 currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 updateMyItemsList();
-                redrawCanvas(); // 資料變更時重繪
+                redrawCanvas();
             });
         }
 
-        // --- Canvas 互動與繪圖 ---
+        // --- Canvas 顯示與互動 ---
 
         function resizeCanvas() {
             if (!originalImage.src) return;
+            // 讓螢幕上的 Canvas 寬度跟隨容器，但畫質解析度跟隨螢幕
             const containerWidth = els.docContainer.clientWidth;
             const finalWidth = Math.min(containerWidth, originalImage.width); 
             const scale = finalWidth / originalImage.width;
@@ -457,7 +447,6 @@
             ctx.drawImage(originalImage, 0, 0, els.docCanvas.width, els.docCanvas.height);
 
             currentItems.forEach(item => {
-                // 如果該物件正在被編輯，則不繪製在 Canvas 上 (因為會有 DOM 覆蓋)
                 if (item.id === editingItemId) return;
 
                 const x = item.x_percent * els.docCanvas.width;
@@ -478,9 +467,8 @@
             });
         }
 
-        // 點擊 Canvas 檢查是否選取物件
         function handleCanvasClick(e) {
-            if (editingItemId) return; // 如果已經在編輯中，忽略點擊 (必須先完成或取消)
+            if (editingItemId) return;
             if (!checkDeadline()) return;
 
             e.preventDefault();
@@ -490,11 +478,8 @@
             const x = clientX - rect.left;
             const y = clientY - rect.top;
 
-            // 從最上層(最後加入)開始檢查
             for (let i = currentItems.length - 1; i >= 0; i--) {
                 const item = currentItems[i];
-                
-                // 權限檢查：是否為本人 或 是發起人
                 const isOwner = item.signerId === currentUser.uid;
                 const isInitiator = currentUser.uid === initiatorId;
                 
@@ -514,32 +499,27 @@
 
             if (item.type === 'signature') {
                 w = item.width_percent * els.docCanvas.width;
-                // 估算高度 (假設簽名比例約 2:1 或需準確計算，這裡簡化)
-                // 由於沒有儲存 height_percent，我們需要透過 aspect ratio，但這裡沒有 image 物件
-                // 為了簡化 HitTest，我們假設一個合理的比例，或者稍微寬鬆的判定
                 h = w * 0.5; 
             } else {
                 const fontSize = item.size_percent * els.docCanvas.width;
                 ctx.font = `bold ${fontSize}px "Noto Sans TC", sans-serif`;
                 const metrics = ctx.measureText(item.content);
                 w = metrics.width;
-                h = fontSize; // 近似高度
+                h = fontSize;
             }
 
             return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
         }
 
-        // --- 編輯器邏輯 (新增與修改共用) ---
+        // --- 編輯器邏輯 ---
 
         function openItemEditor(item) {
             editingItemId = item.id;
-            redrawCanvas(); // 隱藏 Canvas 上的該物件
+            redrawCanvas();
             
-            // 準備參數
             let content = item.content;
             let options = {
                 color: item.color,
-                // 還原當前 Canvas 尺寸下的像素大小
                 currentWidth: item.width_percent ? item.width_percent * els.docCanvas.width : null,
                 currentFontSize: item.size_percent ? item.size_percent * els.docCanvas.width : null,
                 currentX: item.x_percent * els.docCanvas.width,
@@ -549,39 +529,27 @@
             createEditorOverlay(item.type, content, options, item.id);
         }
 
-        // 修改原有的 createDraggableItem 為 createEditorOverlay
-        // 支援「新增模式」(id=null) 與「編輯模式」(id!=null)
         function createEditorOverlay(type, content, options = {}, existingId = null) {
-            // 建立包裹容器
             const wrapper = document.createElement('div');
             wrapper.className = 'absolute dragging group p-1 border-2 border-brand-500 border-dashed hover:border-solid';
             
-            // 初始位置
             if (existingId) {
-                // 編輯模式：使用傳入的座標
-                // 這裡需要注意 Canvas 在 Container 中的 padding/margin
-                // 目前 CSS 設定 container 是 relative, canvas 是 block.
-                // handleCanvasClick 算的是相對 canvas 的 offset
                 wrapper.style.left = `${options.currentX}px`;
                 wrapper.style.top = `${options.currentY}px`;
             } else {
-                // 新增模式：置中
                 wrapper.style.left = '50%';
                 wrapper.style.top = '50%';
                 wrapper.style.transform = 'translate(-50%, -50%)';
             }
 
-            // 刪除按鈕
             const removeBtn = document.createElement('button');
             removeBtn.innerHTML = '✕';
             removeBtn.className = 'absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-sm hover:bg-red-600 z-10 cursor-pointer';
             
-            // 確認按鈕
             const confirmBtn = document.createElement('button');
             confirmBtn.innerHTML = '✓';
             confirmBtn.className = 'absolute -bottom-3 -right-3 bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-sm hover:bg-green-600 z-10 cursor-pointer';
 
-            // 調整大小手把
             const resizeHandle = document.createElement('div');
             resizeHandle.className = 'resize-handle';
             
@@ -590,11 +558,10 @@
                 contentEl = document.createElement('img');
                 contentEl.src = content;
                 contentEl.className = 'pointer-events-none block';
-                // 設定寬度
                 if (options.currentWidth) {
                     contentEl.style.width = `${options.currentWidth}px`;
                 } else {
-                    contentEl.style.width = '150px'; // 預設
+                    contentEl.style.width = '150px';
                 }
             } else {
                 contentEl = document.createElement('div');
@@ -602,7 +569,6 @@
                 contentEl.style.color = options.color;
                 contentEl.style.fontWeight = 'bold';
                 contentEl.className = 'whitespace-nowrap pointer-events-none font-sans leading-none';
-                // 設定字體大小
                 const size = options.currentFontSize || options.baseSize || 24;
                 contentEl.style.fontSize = `${size}px`;
             }
@@ -613,7 +579,6 @@
             wrapper.appendChild(resizeHandle);
             els.docContainer.appendChild(wrapper);
 
-            // 如果是新增模式且置中，修正 transform 對 offset 的影響，將其轉為絕對座標
             if (!existingId) {
                 const rect = wrapper.getBoundingClientRect();
                 const containerRect = els.docContainer.getBoundingClientRect();
@@ -622,7 +587,6 @@
                 wrapper.style.top = `${(containerRect.height - rect.height) / 3}px`;
             }
 
-            // --- 拖曳邏輯 ---
             let isDragging = false;
             let startX, startY, initialLeft, initialTop;
 
@@ -652,7 +616,6 @@
             document.addEventListener('mouseup', onUp);
             document.addEventListener('touchend', onUp);
 
-            // --- 縮放邏輯 ---
             let isResizing = false;
             let resizeStartX, resizeStartWidth, resizeStartFontSize;
 
@@ -667,8 +630,6 @@
                     const newWidth = Math.max(50, resizeStartWidth + dx);
                     contentEl.style.width = `${newWidth}px`;
                 } else {
-                    // 文字縮放：簡單根據水平拖曳比例調整字體
-                    // 假設每移動 2px 增加/減少 1px 字體，或按比例
                     const scaleFactor = 0.2;
                     const newSize = Math.max(12, resizeStartFontSize + dx * scaleFactor);
                     contentEl.style.fontSize = `${newSize}px`;
@@ -694,14 +655,12 @@
             document.addEventListener('mouseup', onResizeUp);
             document.addEventListener('touchend', onResizeUp);
 
-            // --- 按鈕事件 ---
             removeBtn.onclick = async (e) => {
                 e.stopPropagation();
                 if (existingId) {
                     if (confirm('確定要刪除嗎？')) {
                         await deleteDoc(doc(db, `signing_rooms/${currentRoomId}/items`, existingId));
                     } else {
-                        // 取消刪除，恢復原狀
                         editingItemId = null;
                         redrawCanvas();
                     }
@@ -712,13 +671,7 @@
 
             confirmBtn.onclick = async (e) => {
                 e.stopPropagation();
-                
-                const rect = wrapper.getBoundingClientRect();
-                const containerRect = els.docContainer.getBoundingClientRect();
                 const contentRect = contentEl.getBoundingClientRect();
-
-                // 計算相對位置與比例
-                // 使用 wrapper 的 offsetLeft/Top 作為基準
                 const x = wrapper.offsetLeft;
                 const y = wrapper.offsetTop;
                 
@@ -727,15 +680,13 @@
                     content: content,
                     x_percent: x / els.docCanvas.width,
                     y_percent: y / els.docCanvas.height,
-                    width_percent: contentRect.width / els.docCanvas.width, // 實際顯示寬度
-                    size_percent: parseFloat(contentEl.style.fontSize) / els.docCanvas.width, // 文字字體佔比
+                    width_percent: contentRect.width / els.docCanvas.width,
+                    size_percent: parseFloat(contentEl.style.fontSize) / els.docCanvas.width,
                     color: options.color || null,
-                    // 如果是現有物件，保留原 signerId 與 createdAt
                     signerId: existingId ? currentItems.find(i=>i.id===existingId).signerId : currentUser.uid,
                     createdAt: existingId ? currentItems.find(i=>i.id===existingId).createdAt : serverTimestamp()
                 };
 
-                // 清理 DOM
                 wrapper.remove();
                 editingItemId = null;
 
@@ -747,8 +698,6 @@
                 redrawCanvas();
             };
         }
-
-        // --- 模態框操作 ---
 
         function openSigModal() {
             els.sigModal.classList.remove('hidden');
@@ -787,7 +736,7 @@
             document.getElementById('signature-error').classList.add('hidden');
             
             const dataUrl = els.sigPad.toDataURL('image/png');
-            createEditorOverlay('signature', dataUrl); // 新增模式
+            createEditorOverlay('signature', dataUrl);
             closeModals();
         }
 
@@ -799,11 +748,10 @@
             createEditorOverlay('text', text, {
                 color: selectedTextColor,
                 baseSize: parseInt(size)
-            }); // 新增模式
+            });
             closeModals();
         }
 
-        // 簽名板繪圖事件 (保留原邏輯)
         let isDrawing = false, lastX = 0, lastY = 0;
         function getPointerPos(e) {
             const rect = els.sigPad.getBoundingClientRect();
@@ -829,19 +777,65 @@
         }, {passive: false}));
         ['mouseup', 'touchend', 'mouseout'].forEach(evt => els.sigPad.addEventListener(evt, () => isDrawing = false));
 
-        // --- 工具函式 ---
+        // --- 全新功能：高解析度下載邏輯 ---
 
-        function downloadSignedDocument() {
-            // 下載前強制重繪，確保所有編輯框都已關閉/確認
+        async function downloadHighResDocument() {
             if (editingItemId) {
                 alert('請先確認或取消當前的編輯項目 (打勾或刪除)');
                 return;
             }
-            redrawCanvas();
+
+            const downloadBtn = document.getElementById('download-btn');
+            const originalText = downloadBtn.textContent;
+            downloadBtn.textContent = '產生高畫質圖片中...';
+            downloadBtn.disabled = true;
+
+            // 1. 創建一個暫時的 Canvas，尺寸為原始圖片尺寸 (高解析度)
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = originalImage.width;
+            tempCanvas.height = originalImage.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // 2. 繪製底圖
+            tempCtx.drawImage(originalImage, 0, 0, tempCanvas.width, tempCanvas.height);
+
+            // 3. 繪製所有項目 (需要等待圖片載入)
+            const drawPromises = currentItems.map(item => {
+                return new Promise((resolve) => {
+                    const x = item.x_percent * tempCanvas.width;
+                    const y = item.y_percent * tempCanvas.height;
+                    const w = item.width_percent * tempCanvas.width;
+
+                    if (item.type === 'signature') {
+                        const img = new Image();
+                        img.crossOrigin = "anonymous";
+                        img.onload = () => {
+                            tempCtx.drawImage(img, x, y, w, (w / img.width) * img.height);
+                            resolve();
+                        };
+                        img.onerror = resolve; // 避免單一圖片失敗卡死
+                        img.src = item.content;
+                    } else if (item.type === 'text') {
+                        const fontSize = item.size_percent * tempCanvas.width;
+                        tempCtx.font = `bold ${fontSize}px "Noto Sans TC", sans-serif`;
+                        tempCtx.fillStyle = item.color || '#000000';
+                        tempCtx.textBaseline = 'top';
+                        tempCtx.fillText(item.content, x, y);
+                        resolve();
+                    }
+                });
+            });
+
+            await Promise.all(drawPromises);
+
+            // 4. 下載
             const link = document.createElement('a');
-            link.download = `signed-document-${currentRoomId}.png`;
-            link.href = els.docCanvas.toDataURL('image/png');
+            link.download = `signed-document-${currentRoomId}-highres.png`;
+            link.href = tempCanvas.toDataURL('image/png');
             link.click();
+
+            downloadBtn.textContent = originalText;
+            downloadBtn.disabled = false;
         }
 
         function copyShareLink() {
@@ -855,7 +849,6 @@
 
         function updateMyItemsList() {
             els.myItemsList.innerHTML = '';
-            // 顯示我的項目 + 如果我是發起人，顯示所有項目但標註
             const isInitiator = currentUser.uid === initiatorId;
             let itemsToShow = isInitiator ? currentItems : currentItems.filter(i => i.signerId === currentUser.uid);
             
@@ -867,15 +860,8 @@
             itemsToShow.forEach((item, index) => {
                 const li = document.createElement('li');
                 li.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 shadow-sm';
-                
-                let label = '';
-                if (item.type === 'signature') label = `簽名`;
-                else label = `文字: ${item.content}`;
-
-                // 如果是管理員看別人的，加個標註
-                if (isInitiator && item.signerId !== currentUser.uid) {
-                    label += ' (他人)';
-                }
+                let label = item.type === 'signature' ? '簽名' : `文字: ${item.content}`;
+                if (isInitiator && item.signerId !== currentUser.uid) label += ' (他人)';
 
                 li.innerHTML = `
                     <span class="text-xs font-medium text-gray-700 truncate w-32 cursor-pointer hover:text-brand-600" onclick="focusItem('${item.id}')">${label}</span>
@@ -893,7 +879,6 @@
             }
         };
 
-        // 從清單點擊觸發編輯
         window.focusItem = (itemId) => {
             const item = currentItems.find(i => i.id === itemId);
             if(item && !editingItemId && checkDeadline()) {
@@ -914,7 +899,8 @@
             const buffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
             const page = await pdf.getPage(1);
-            const viewport = page.getViewport({ scale: 2.0 });
+            // 改進：提高解析度倍率 (Scale 3.0)
+            const viewport = page.getViewport({ scale: 3.0 }); 
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             canvas.height = viewport.height;
@@ -922,7 +908,6 @@
             await page.render({ canvasContext: context, viewport }).promise;
             return canvas.toDataURL('image/png');
         }
-
     </script>
 </body>
 </html>
