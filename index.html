@@ -3,150 +3,245 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多人協作文件簽署工具</title>
+    <title>多人協作文件簽署工具 (進階版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Noto Sans TC', sans-serif;
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' }
+                    }
+                }
+            }
         }
-        #signature-pad { touch-action: none; }
+    </script>
+    <style>
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        #signature-pad { touch-action: none; cursor: crosshair; }
         .dragging {
-            opacity: 0.7;
-            cursor: grabbing;
+            cursor: move;
             border: 2px dashed #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
             z-index: 1000;
+            user-select: none;
+        }
+        .resize-handle {
+            width: 12px;
+            height: 12px;
+            background-color: #3b82f6;
+            border: 2px solid white;
+            position: absolute;
+            right: -6px;
+            bottom: -6px;
+            cursor: nwse-resize;
+            border-radius: 50%;
+            z-index: 1001;
         }
         .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 50;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 50; backdrop-filter: blur(2px);
         }
+        /* Color Radio Custom Styles */
+        .color-radio:checked + label { ring-width: 2px; ring-offset-width: 2px; transform: scale(1.1); }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800 flex flex-col items-center min-h-screen p-4 md:p-8">
+<body class="bg-gray-100 text-gray-800 flex flex-col items-center min-h-screen p-4 md:p-6">
 
-    <div class="w-full max-w-5xl bg-white rounded-xl shadow-lg p-6 md:p-8">
-        <header class="text-center mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">多人協作文件簽署工具</h1>
-            <p class="text-gray-600 mt-2">分享連結，輕鬆收集多人簽名！</p>
-        </header>
+    <div class="w-full max-w-6xl bg-white rounded-xl shadow-xl overflow-hidden flex flex-col md:flex-row min-h-[80vh]">
+        
+        <!-- 左側面板：控制區 -->
+        <aside class="w-full md:w-80 bg-gray-50 border-r border-gray-200 flex-shrink-0 flex flex-col">
+            <div class="p-6 border-b border-gray-200">
+                <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <svg class="w-8 h-8 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    文件簽署通
+                </h1>
+                <p class="text-xs text-gray-500 mt-1">多人即時協作平台</p>
+            </div>
 
-        <main id="app" class="space-y-8">
             <!-- 載入中 -->
-            <div id="loader" class="text-center py-10 hidden">
-                <p class="text-lg font-semibold text-gray-600">載入中，請稍候...</p>
+            <div id="loader" class="flex-1 flex flex-col items-center justify-center p-6 space-y-4 hidden">
+                <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600"></div>
+                <p class="text-sm text-gray-500">處理中...</p>
             </div>
-            
-            <!-- 步驟一：建立簽署空間 -->
-            <div id="create-view">
-                <div class="flex items-center gap-4 mb-4">
-                    <div class="bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold text-lg">1</div>
-                    <h2 class="text-2xl font-bold">上傳文件以建立簽署空間</h2>
+
+            <!-- 狀態：建立新房間 -->
+            <div id="create-view" class="flex-1 p-6 flex flex-col justify-center space-y-6">
+                <div>
+                    <h2 class="text-lg font-bold mb-2">步驟 1: 上傳文件</h2>
+                    <p class="text-sm text-gray-500 mb-4">支援 JPG, PNG 或 PDF</p>
+                    
+                    <input type="file" id="file-uploader" accept="image/png, image/jpeg, application/pdf" class="hidden">
+                    <button onclick="document.getElementById('file-uploader').click()" class="w-full border-2 border-dashed border-gray-300 rounded-lg p-6 hover:border-brand-500 hover:bg-brand-50 transition-colors text-center group">
+                        <svg class="w-8 h-8 mx-auto text-gray-400 group-hover:text-brand-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        <span class="text-sm font-medium text-gray-600 group-hover:text-brand-600">點擊選擇檔案</span>
+                    </button>
+                    <p id="file-name" class="mt-2 text-xs text-brand-600 font-medium truncate"></p>
                 </div>
-                <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50 space-y-4">
-                    <div>
-                        <p class="mb-4 text-gray-500">請選擇一個圖片檔 (JPG, PNG) 或 PDF 檔作為您的文件</p>
-                        <input type="file" id="file-uploader" accept="image/png, image/jpeg, application/pdf" class="hidden">
-                        <button onclick="document.getElementById('file-uploader').click()" class="bg-blue-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-600 transition-transform transform hover:scale-105 shadow-md">
-                            選擇檔案
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">截止時間 (選填)</label>
+                    <input type="datetime-local" id="deadline-input" class="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none">
+                </div>
+
+                <button id="create-room-btn" class="w-full bg-brand-600 text-white font-bold py-3 rounded-lg hover:bg-brand-700 transition-all shadow-md disabled:bg-gray-300 disabled:cursor-not-allowed" disabled>
+                    建立簽署空間
+                </button>
+            </div>
+
+            <!-- 狀態：房間內操作 -->
+            <div id="room-controls" class="flex-1 p-6 flex flex-col hidden overflow-y-auto">
+                <!-- 分享區塊 -->
+                <div class="bg-blue-50 p-3 rounded-lg mb-6 border border-blue-100">
+                    <h3 class="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2">邀請連結</h3>
+                    <div class="flex gap-1">
+                        <input type="text" id="share-link" readonly class="flex-1 bg-white border border-blue-200 rounded px-2 py-1 text-xs text-gray-600">
+                        <button id="copy-link-btn" class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700">複製</button>
+                    </div>
+                    <p id="deadline-info" class="text-xs text-red-500 mt-2 font-medium hidden">截止：<span id="deadline-display"></span></p>
+                </div>
+
+                <!-- 工具列 -->
+                <div class="space-y-3 mb-6">
+                    <h3 class="text-sm font-bold text-gray-700">新增項目</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-add-sig" class="flex items-center justify-center gap-2 bg-white border border-gray-300 p-2 rounded hover:bg-gray-50 hover:border-gray-400 transition-colors">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            <span class="text-sm">簽名</span>
                         </button>
-                        <p id="file-name" class="mt-2 text-sm text-gray-500"></p>
+                        <button id="btn-add-text" class="flex items-center justify-center gap-2 bg-white border border-gray-300 p-2 rounded hover:bg-gray-50 hover:border-gray-400 transition-colors">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path></svg>
+                            <span class="text-sm">文字</span>
+                        </button>
                     </div>
-                     <div>
-                        <label for="deadline-input" class="block mb-2 text-gray-600">設定簽名截止時間 (非必填)</label>
-                        <input type="datetime-local" id="deadline-input" class="p-2 border rounded-md">
-                    </div>
-                    <button id="create-room-btn" class="bg-green-500 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-green-600 transition-transform transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
-                        建立簽署空間
+                    <p id="drag-hint" class="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-100 hidden">
+                        👆 點擊文件上的物件即可移動、縮放或刪除。<br>
+                        <span class="text-xs text-gray-500 mt-1 block">發起人可調整所有物件。</span>
+                    </p>
+                </div>
+
+                <!-- 我的項目列表 -->
+                <div class="flex-1 overflow-y-auto min-h-[100px]">
+                    <h3 class="text-sm font-bold text-gray-700 mb-2">我加入的內容</h3>
+                    <ul id="my-items-list" class="space-y-2">
+                        <!-- JS 動態產生 -->
+                        <li class="text-xs text-gray-400 italic text-center py-4">尚未加入任何項目</li>
+                    </ul>
+                </div>
+
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <button id="download-btn" class="w-full bg-green-600 text-white font-bold py-2 rounded hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        下載簽署文件
                     </button>
                 </div>
             </div>
+        </aside>
 
-            <!-- 步驟二：簽署頁面 -->
-            <div id="room-view" class="hidden">
-                <div class="bg-blue-50 p-4 rounded-lg mb-6 shadow-sm border border-blue-200">
-                    <h2 class="text-xl font-bold mb-2">分享此簽署空間</h2>
-                    <p class="text-sm text-gray-600 mb-2">複製以下連結並傳送給需要簽署的人員：</p>
-                    <div class="flex gap-2">
-                        <input type="text" id="share-link" readonly class="w-full bg-white border border-gray-300 rounded-md p-2 text-sm">
-                        <button id="copy-link-btn" class="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors">複製</button>
-                    </div>
-                    <p class="text-sm text-red-600 mt-2 font-semibold">截止時間：<span id="deadline-display">無</span></p>
-                </div>
-            
-                <div id="document-container" class="relative w-full border-2 border-gray-300 rounded-lg overflow-hidden bg-gray-100 shadow-inner">
-                    <canvas id="document-canvas"></canvas>
-                    <!-- Draggable signature will be appended here by JS -->
-                </div>
-
-                <div id="action-buttons" class="mt-6 text-center space-x-4">
-                    <button id="add-signature-btn" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-indigo-700 transition-transform transform hover:scale-105 shadow-lg">
-                        新增我的簽名
-                    </button>
-                    <button id="remove-signature-btn" class="bg-red-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-red-700 transition-transform transform hover:scale-105 shadow-lg hidden">
-                        移除我的簽名
-                    </button>
-                    <button id="download-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg text-lg hover:bg-blue-700 transition-transform transform hover:scale-105 shadow-lg">
-                        下載文件
-                    </button>
-                </div>
-                 <p id="deadline-passed-msg" class="text-center text-red-500 font-bold mt-4 hidden">已超過簽署截止時間。</p>
+        <!-- 右側面板：文件顯示區 -->
+        <main class="flex-1 bg-gray-200 relative overflow-auto flex items-center justify-center p-4">
+            <div id="document-container" class="relative bg-white shadow-lg mx-auto select-none">
+                <canvas id="document-canvas" class="block cursor-pointer"></canvas>
+                <!-- 拖曳中的元素會放在這裡 -->
             </div>
         </main>
     </div>
 
     <!-- 簽名板 Modal -->
     <div id="signature-modal" class="modal-overlay hidden">
-        <div class="bg-white rounded-lg shadow-2xl p-6 w-11/12 max-w-lg">
-            <h3 class="text-2xl font-bold mb-4 text-center">繪製您的簽名</h3>
-            <div class="bg-gray-50 rounded-lg shadow-inner p-2">
-                 <canvas id="signature-pad" class="w-full h-48 border border-gray-300 rounded-md bg-white"></canvas>
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">繪製簽名</h3>
+                <button class="modal-close text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
             </div>
-            <p id="signature-empty-error" class="text-red-500 text-center mt-2 hidden">簽名欄位不可為空白。</p>
-            <div class="flex justify-center gap-4 mt-4">
-                <button id="clear-signature" class="bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-lg hover:bg-gray-300">清除</button>
-                <button id="confirm-signature" class="bg-green-500 text-white font-bold py-2 px-6 rounded-lg hover:bg-green-600">確認簽名</button>
+            
+            <!-- 筆觸設定 -->
+            <div class="flex items-center justify-between mb-3 bg-gray-50 p-2 rounded-lg">
+                <div class="flex space-x-3">
+                    <div class="relative">
+                        <input type="radio" name="pen-color" id="color-black" value="#000000" class="color-radio sr-only" checked>
+                        <label for="color-black" class="block w-6 h-6 rounded-full bg-black cursor-pointer ring-offset-2 ring-gray-300"></label>
+                    </div>
+                    <div class="relative">
+                        <input type="radio" name="pen-color" id="color-blue" value="#0000FF" class="color-radio sr-only">
+                        <label for="color-blue" class="block w-6 h-6 rounded-full bg-blue-600 cursor-pointer ring-blue-300"></label>
+                    </div>
+                    <div class="relative">
+                        <input type="radio" name="pen-color" id="color-red" value="#FF0000" class="color-radio sr-only">
+                        <label for="color-red" class="block w-6 h-6 rounded-full bg-red-600 cursor-pointer ring-red-300"></label>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs text-gray-500">粗細</span>
+                    <input type="range" id="pen-width" min="1" max="5" value="2" class="w-20 accent-brand-600">
+                </div>
             </div>
-        </div>
-    </div>
-    
-    <!-- 截止時間提示 Modal -->
-    <div id="deadline-alert-modal" class="modal-overlay hidden">
-        <div class="bg-white rounded-lg shadow-2xl p-8 w-11/12 max-w-sm text-center">
-            <h3 class="text-2xl font-bold mb-4 text-red-600">簽署時間已過</h3>
-            <p class="text-gray-700 mb-6">抱歉，此文件的簽署時間已截止，您無法再新增簽名。</p>
-            <button id="close-deadline-alert" class="bg-blue-500 text-white font-bold py-2 px-8 rounded-lg hover:bg-blue-600">我明白了</button>
+
+            <div class="bg-white border-2 border-gray-200 rounded-lg touch-none">
+                 <canvas id="signature-pad" class="w-full h-48 rounded-md"></canvas>
+            </div>
+            <p id="signature-error" class="text-red-500 text-sm mt-2 text-center hidden">請先簽名</p>
+            
+            <div class="flex gap-3 mt-5">
+                <button id="clear-signature" class="flex-1 bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-200">清除</button>
+                <button id="confirm-signature" class="flex-1 bg-brand-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-brand-700">確認使用</button>
+            </div>
         </div>
     </div>
 
-    <footer class="text-center mt-8 text-gray-500 text-sm">
-        <p>&copy; 2025 多人協作文件簽署工具. All rights reserved.</p>
-    </footer>
+    <!-- 文字輸入 Modal -->
+    <div id="text-modal" class="modal-overlay hidden">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4">
+             <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">插入文字</h3>
+                <button class="modal-close text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <input type="text" id="text-content" placeholder="請輸入內容 (例如: 姓名、日期)" class="w-full border border-gray-300 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-brand-500 focus:outline-none">
+            
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex space-x-2">
+                    <button class="text-color-btn w-6 h-6 rounded-full bg-black ring-2 ring-offset-1 ring-transparent hover:scale-110 transition-transform" data-color="#000000"></button>
+                    <button class="text-color-btn w-6 h-6 rounded-full bg-blue-600 hover:scale-110 transition-transform" data-color="#0000FF"></button>
+                    <button class="text-color-btn w-6 h-6 rounded-full bg-red-600 hover:scale-110 transition-transform" data-color="#FF0000"></button>
+                </div>
+                <select id="text-size" class="border border-gray-300 rounded px-2 py-1 text-sm">
+                    <option value="16">小</option>
+                    <option value="24" selected>中</option>
+                    <option value="36">大</option>
+                    <option value="48">特大</option>
+                </select>
+            </div>
+
+            <button id="confirm-text" class="w-full bg-brand-600 text-white font-bold py-2 rounded-lg hover:bg-brand-700">加入文件</button>
+        </div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, addDoc, onSnapshot, collection, serverTimestamp, deleteDoc, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, onSnapshot, collection, serverTimestamp, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyACheuw4QDEnXbTFduwaXFLIujXBHFhV-Q",
-            authDomain: "esignature-987ac.firebaseapp.com",
-            projectId: "esignature-987ac",
-            storageBucket: "esignature-987ac.appspot.com",
-            messagingSenderId: "56174346940",
-            appId: "1:56174346940:web:8f8a664b84109fa849c6b9",
-            measurementId: "G-GDYR4F5ZD9"
+  authDomain: "esignature-987ac.firebaseapp.com",
+  projectId: "esignature-987ac",
+  storageBucket: "esignature-987ac.firebasestorage.app",
+  messagingSenderId: "56174346940",
+  appId: "1:56174346940:web:8f8a664b84109fa849c6b9",
+  measurementId: "G-GDYR4F5ZD9"
         };
         
         const app = initializeApp(firebaseConfig);
@@ -156,363 +251,678 @@
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
 
         let currentUser = null;
-
-        // --- DOM 元素 ---
-        const loader = document.getElementById('loader');
-        const createView = document.getElementById('create-view');
-        const roomView = document.getElementById('room-view');
-        const fileUploader = document.getElementById('file-uploader');
-        const fileNameDisplay = document.getElementById('file-name');
-        const deadlineInput = document.getElementById('deadline-input');
-        const createRoomBtn = document.getElementById('create-room-btn');
-        const shareLinkInput = document.getElementById('share-link');
-        const copyLinkBtn = document.getElementById('copy-link-btn');
-        const deadlineDisplay = document.getElementById('deadline-display');
-        const documentContainer = document.getElementById('document-container');
-        const documentCanvas = document.getElementById('document-canvas');
-        const documentCtx = documentCanvas.getContext('2d');
-        const addSignatureBtn = document.getElementById('add-signature-btn');
-        const removeSignatureBtn = document.getElementById('remove-signature-btn');
-        const downloadBtn = document.getElementById('download-btn');
-        const deadlinePassedMsg = document.getElementById('deadline-passed-msg');
-        const signatureModal = document.getElementById('signature-modal');
-        const signaturePad = document.getElementById('signature-pad');
-        const signatureCtx = signaturePad.getContext('2d');
-        const clearSignatureBtn = document.getElementById('clear-signature');
-        const confirmSignatureBtn = document.getElementById('confirm-signature');
-        const signatureEmptyError = document.getElementById('signature-empty-error');
-        const deadlineAlertModal = document.getElementById('deadline-alert-modal');
-        const closeDeadlineAlertBtn = document.getElementById('close-deadline-alert');
-
-        let originalImage = new Image();
         let currentRoomId = null;
-        let unsubscribe = null;
-        let currentSignatures = [];
+        let initiatorId = null; // 發起人 ID
+        let originalImage = new Image();
         let roomDeadline = null;
-        let mySignatureId = null;
+        let currentItems = []; 
+        let unsubscribe = null;
+        let editingItemId = null; // 當前正在編輯的物件 ID
 
+        // UI 元素
+        const els = {
+            loader: document.getElementById('loader'),
+            createView: document.getElementById('create-view'),
+            roomControls: document.getElementById('room-controls'),
+            fileUploader: document.getElementById('file-uploader'),
+            fileName: document.getElementById('file-name'),
+            createBtn: document.getElementById('create-room-btn'),
+            deadlineInput: document.getElementById('deadline-input'),
+            docContainer: document.getElementById('document-container'),
+            docCanvas: document.getElementById('document-canvas'),
+            shareLink: document.getElementById('share-link'),
+            myItemsList: document.getElementById('my-items-list'),
+            dragHint: document.getElementById('drag-hint'),
+            sigModal: document.getElementById('signature-modal'),
+            textModal: document.getElementById('text-modal'),
+            sigPad: document.getElementById('signature-pad'),
+        };
+
+        const ctx = els.docCanvas.getContext('2d');
+        const sigCtx = els.sigPad.getContext('2d');
+        let selectedTextColor = '#000000';
+
+        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             onAuthStateChanged(auth, async (user) => {
-                if (user) { currentUser = user; handleRouting(); } 
-                else { await signInAnonymously(auth); }
+                if (user) { 
+                    currentUser = user; 
+                    handleRouting(); 
+                } else { 
+                    await signInAnonymously(auth); 
+                }
             });
-            fileUploader.addEventListener('change', handleFileSelect);
+
+            els.fileUploader.addEventListener('change', handleFileSelect);
+            els.createBtn.onclick = createRoom;
+            document.getElementById('copy-link-btn').onclick = copyShareLink;
+            document.getElementById('download-btn').onclick = downloadSignedDocument;
             
-            // --- FIX: Use .onclick to avoid event listener conflicts ---
-            createRoomBtn.onclick = createRoom;
-            addSignatureBtn.onclick = openSignatureModal;
-            removeSignatureBtn.onclick = removeMySignature;
-            downloadBtn.onclick = downloadSignedDocument;
-            copyLinkBtn.onclick = copyShareLink;
-            closeDeadlineAlertBtn.onclick = () => deadlineAlertModal.classList.add('hidden');
-            clearSignatureBtn.onclick = clearSignaturePad;
-            confirmSignatureBtn.onclick = confirmSignature;
+            document.getElementById('btn-add-sig').onclick = () => checkDeadline() && openSigModal();
+            document.getElementById('btn-add-text').onclick = () => checkDeadline() && openTextModal();
+            document.querySelectorAll('.modal-close').forEach(btn => btn.onclick = closeModals);
+            
+            document.getElementById('clear-signature').onclick = clearSigPad;
+            document.getElementById('confirm-signature').onclick = confirmSignature;
+            document.querySelectorAll('input[name="pen-color"]').forEach(r => r.addEventListener('change', (e) => {
+                sigCtx.strokeStyle = e.target.value;
+            }));
+            document.getElementById('pen-width').addEventListener('input', (e) => {
+                sigCtx.lineWidth = e.target.value;
+            });
+
+            document.getElementById('confirm-text').onclick = confirmText;
+            document.querySelectorAll('.text-color-btn').forEach(btn => btn.onclick = (e) => {
+                document.querySelectorAll('.text-color-btn').forEach(b => b.classList.remove('ring-2', 'ring-offset-1', 'ring-transparent'));
+                e.target.classList.add('ring-2', 'ring-offset-1', 'ring-transparent');
+                selectedTextColor = e.target.dataset.color;
+            });
+            
+            window.addEventListener('resize', resizeCanvas);
+            
+            // 新增：畫布點擊事件 (選取物件)
+            els.docCanvas.addEventListener('mousedown', handleCanvasClick);
+            els.docCanvas.addEventListener('touchstart', handleCanvasClick);
         });
-        
+
         function handleRouting() {
             const params = new URLSearchParams(window.location.search);
             currentRoomId = params.get('room');
-            loader.classList.remove('hidden');
-            createView.classList.add('hidden');
-            roomView.classList.add('hidden');
-            if (currentRoomId) { loadRoom(currentRoomId); } 
-            else { loader.classList.add('hidden'); createView.classList.remove('hidden'); }
+            
+            els.loader.classList.add('hidden');
+            if (currentRoomId) {
+                els.createView.classList.add('hidden');
+                els.roomControls.classList.remove('hidden');
+                loadRoom(currentRoomId);
+            } else {
+                els.createView.classList.remove('hidden');
+                els.roomControls.classList.add('hidden');
+            }
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if(file) {
+                els.fileName.textContent = file.name;
+                els.createBtn.disabled = false;
+            } else {
+                els.fileName.textContent = '';
+                els.createBtn.disabled = true;
+            }
         }
 
         async function createRoom() {
-            const file = fileUploader.files[0];
-            if (!file) { alert('請先選擇一個檔案'); return; }
+            const file = els.fileUploader.files[0];
+            if (!file) return;
 
-            createRoomBtn.disabled = true;
-            createRoomBtn.textContent = '處理中...';
+            els.createBtn.disabled = true;
+            els.createBtn.textContent = '處理中...';
 
             try {
                 let imageDataUrl;
                 if (file.type === "application/pdf") {
-                    createRoomBtn.textContent = '處理PDF中...';
                     imageDataUrl = await renderPdfToImage(file);
                 } else {
-                    imageDataUrl = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = e => resolve(e.target.result);
-                        reader.onerror = err => reject(err);
-                        reader.readAsDataURL(file);
-                    });
+                    imageDataUrl = await readFileAsDataURL(file);
                 }
-                
+
                 const roomData = {
                     initiatorId: currentUser.uid,
                     originalImage: imageDataUrl,
                     createdAt: serverTimestamp(),
-                    deadline: deadlineInput.value ? new Date(deadlineInput.value) : null
+                    deadline: els.deadlineInput.value ? new Date(els.deadlineInput.value) : null
                 };
-                
-                const roomsCollection = collection(db, `signing_rooms`);
-                const docRef = await addDoc(roomsCollection, roomData);
-                window.location.search = `?room=${docRef.id}`;
 
-            } catch (error) {
-                console.error("建立空間失敗:", error);
-                alert("檔案處理失敗，請稍後再試。");
-                createRoomBtn.disabled = false;
-                createRoomBtn.textContent = '建立簽署空間';
+                const docRef = await addDoc(collection(db, 'signing_rooms'), roomData);
+                window.location.search = `?room=${docRef.id}`;
+            } catch (err) {
+                console.error(err);
+                alert('建立失敗，請重試');
+                els.createBtn.disabled = false;
             }
         }
-        
-        async function renderPdfToImage(file) {
-            const fileReader = new FileReader();
-            return new Promise((resolve, reject) => {
-                fileReader.onload = async (event) => {
-                    try {
-                        const pdf = await pdfjsLib.getDocument({ data: event.target.result }).promise;
-                        const page = await pdf.getPage(1);
-                        const viewport = page.getViewport({ scale: 1.5 });
-                        const canvas = document.createElement('canvas');
-                        const context = canvas.getContext('2d');
-                        canvas.height = viewport.height;
-                        canvas.width = viewport.width;
-                        await page.render({ canvasContext: context, viewport: viewport }).promise;
-                        resolve(canvas.toDataURL('image/png'));
-                    } catch (error) { reject(error); }
-                };
-                fileReader.readAsArrayBuffer(file);
-            });
-        }
-
 
         async function loadRoom(roomId) {
-            const roomDocRef = doc(db, `signing_rooms/${roomId}`);
-            const roomDoc = await getDoc(roomDocRef);
-
-            if (!roomDoc.exists()) {
-                alert('找不到這個簽署空間！');
-                window.location.search = '';
+            els.loader.classList.remove('hidden');
+            const roomSnap = await getDoc(doc(db, 'signing_rooms', roomId));
+            
+            if (!roomSnap.exists()) {
+                alert('房間不存在');
+                window.location.href = '/';
                 return;
             }
 
-            const roomData = roomDoc.data();
-            originalImage.src = roomData.originalImage;
+            const data = roomSnap.data();
+            initiatorId = data.initiatorId; // 儲存發起人 ID
+            originalImage.src = data.originalImage;
+            
+            if (data.deadline) {
+                roomDeadline = data.deadline.toDate();
+                document.getElementById('deadline-info').classList.remove('hidden');
+                document.getElementById('deadline-display').textContent = roomDeadline.toLocaleString();
+                checkDeadline();
+            }
+
             originalImage.onload = () => {
-                loader.classList.add('hidden');
-                roomView.classList.remove('hidden');
-                setupDocumentCanvas();
+                els.loader.classList.add('hidden');
+                resizeCanvas();
+                setupRealtimeListener(roomId);
+                els.dragHint.classList.remove('hidden');
+            };
+            
+            els.shareLink.value = window.location.href;
+        }
+
+        function checkDeadline() {
+            if (roomDeadline && new Date() > roomDeadline) {
+                // 如果是編輯既有物件的操作，這裡可以另外判斷，但通常截止就是全面截止
+                alert('此文件簽署時間已截止，無法新增或修改內容。');
+                document.getElementById('btn-add-sig').disabled = true;
+                document.getElementById('btn-add-text').disabled = true;
+                return false;
+            }
+            return true;
+        }
+
+        function setupRealtimeListener(roomId) {
+            const q = query(collection(db, `signing_rooms/${roomId}/items`), orderBy('createdAt', 'asc'));
+            
+            if (unsubscribe) unsubscribe();
+            unsubscribe = onSnapshot(q, (snapshot) => {
+                currentItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                updateMyItemsList();
+                redrawCanvas(); // 資料變更時重繪
+            });
+        }
+
+        // --- Canvas 互動與繪圖 ---
+
+        function resizeCanvas() {
+            if (!originalImage.src) return;
+            const containerWidth = els.docContainer.clientWidth;
+            const finalWidth = Math.min(containerWidth, originalImage.width); 
+            const scale = finalWidth / originalImage.width;
+            
+            els.docCanvas.width = finalWidth;
+            els.docCanvas.height = originalImage.height * scale;
+            els.docCanvas.style.width = `${finalWidth}px`;
+            els.docCanvas.style.height = `${els.docCanvas.height}px`;
+
+            redrawCanvas();
+        }
+
+        function redrawCanvas() {
+            if (els.docCanvas.width === 0) return;
+            ctx.clearRect(0, 0, els.docCanvas.width, els.docCanvas.height);
+            ctx.drawImage(originalImage, 0, 0, els.docCanvas.width, els.docCanvas.height);
+
+            currentItems.forEach(item => {
+                // 如果該物件正在被編輯，則不繪製在 Canvas 上 (因為會有 DOM 覆蓋)
+                if (item.id === editingItemId) return;
+
+                const x = item.x_percent * els.docCanvas.width;
+                const y = item.y_percent * els.docCanvas.height;
+                const w = item.width_percent * els.docCanvas.width;
+
+                if (item.type === 'signature') {
+                    const img = new Image();
+                    img.src = item.content;
+                    ctx.drawImage(img, x, y, w, (w/img.width)*img.height);
+                } else if (item.type === 'text') {
+                    const fontSize = item.size_percent * els.docCanvas.width; 
+                    ctx.font = `bold ${fontSize}px "Noto Sans TC", sans-serif`;
+                    ctx.fillStyle = item.color || '#000000';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(item.content, x, y);
+                }
+            });
+        }
+
+        // 點擊 Canvas 檢查是否選取物件
+        function handleCanvasClick(e) {
+            if (editingItemId) return; // 如果已經在編輯中，忽略點擊 (必須先完成或取消)
+            if (!checkDeadline()) return;
+
+            e.preventDefault();
+            const rect = els.docCanvas.getBoundingClientRect();
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+
+            // 從最上層(最後加入)開始檢查
+            for (let i = currentItems.length - 1; i >= 0; i--) {
+                const item = currentItems[i];
                 
-                if (roomData.deadline) {
-                    roomDeadline = roomData.deadline.toDate();
-                    deadlineDisplay.textContent = roomDeadline.toLocaleString();
-                    if (new Date() > roomDeadline) {
-                        addSignatureBtn.disabled = true;
-                        addSignatureBtn.classList.add('hidden');
-                        removeSignatureBtn.classList.add('hidden');
-                        deadlinePassedMsg.classList.remove('hidden');
+                // 權限檢查：是否為本人 或 是發起人
+                const isOwner = item.signerId === currentUser.uid;
+                const isInitiator = currentUser.uid === initiatorId;
+                
+                if (!isOwner && !isInitiator) continue;
+
+                if (hitTest(x, y, item)) {
+                    openItemEditor(item);
+                    break;
+                }
+            }
+        }
+
+        function hitTest(mouseX, mouseY, item) {
+            const x = item.x_percent * els.docCanvas.width;
+            const y = item.y_percent * els.docCanvas.height;
+            let w, h;
+
+            if (item.type === 'signature') {
+                w = item.width_percent * els.docCanvas.width;
+                // 估算高度 (假設簽名比例約 2:1 或需準確計算，這裡簡化)
+                // 由於沒有儲存 height_percent，我們需要透過 aspect ratio，但這裡沒有 image 物件
+                // 為了簡化 HitTest，我們假設一個合理的比例，或者稍微寬鬆的判定
+                h = w * 0.5; 
+            } else {
+                const fontSize = item.size_percent * els.docCanvas.width;
+                ctx.font = `bold ${fontSize}px "Noto Sans TC", sans-serif`;
+                const metrics = ctx.measureText(item.content);
+                w = metrics.width;
+                h = fontSize; // 近似高度
+            }
+
+            return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+        }
+
+        // --- 編輯器邏輯 (新增與修改共用) ---
+
+        function openItemEditor(item) {
+            editingItemId = item.id;
+            redrawCanvas(); // 隱藏 Canvas 上的該物件
+            
+            // 準備參數
+            let content = item.content;
+            let options = {
+                color: item.color,
+                // 還原當前 Canvas 尺寸下的像素大小
+                currentWidth: item.width_percent ? item.width_percent * els.docCanvas.width : null,
+                currentFontSize: item.size_percent ? item.size_percent * els.docCanvas.width : null,
+                currentX: item.x_percent * els.docCanvas.width,
+                currentY: item.y_percent * els.docCanvas.height
+            };
+
+            createEditorOverlay(item.type, content, options, item.id);
+        }
+
+        // 修改原有的 createDraggableItem 為 createEditorOverlay
+        // 支援「新增模式」(id=null) 與「編輯模式」(id!=null)
+        function createEditorOverlay(type, content, options = {}, existingId = null) {
+            // 建立包裹容器
+            const wrapper = document.createElement('div');
+            wrapper.className = 'absolute dragging group p-1 border-2 border-brand-500 border-dashed hover:border-solid';
+            
+            // 初始位置
+            if (existingId) {
+                // 編輯模式：使用傳入的座標
+                // 這裡需要注意 Canvas 在 Container 中的 padding/margin
+                // 目前 CSS 設定 container 是 relative, canvas 是 block.
+                // handleCanvasClick 算的是相對 canvas 的 offset
+                wrapper.style.left = `${options.currentX}px`;
+                wrapper.style.top = `${options.currentY}px`;
+            } else {
+                // 新增模式：置中
+                wrapper.style.left = '50%';
+                wrapper.style.top = '50%';
+                wrapper.style.transform = 'translate(-50%, -50%)';
+            }
+
+            // 刪除按鈕
+            const removeBtn = document.createElement('button');
+            removeBtn.innerHTML = '✕';
+            removeBtn.className = 'absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-sm hover:bg-red-600 z-10 cursor-pointer';
+            
+            // 確認按鈕
+            const confirmBtn = document.createElement('button');
+            confirmBtn.innerHTML = '✓';
+            confirmBtn.className = 'absolute -bottom-3 -right-3 bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shadow-sm hover:bg-green-600 z-10 cursor-pointer';
+
+            // 調整大小手把
+            const resizeHandle = document.createElement('div');
+            resizeHandle.className = 'resize-handle';
+            
+            let contentEl;
+            if (type === 'signature') {
+                contentEl = document.createElement('img');
+                contentEl.src = content;
+                contentEl.className = 'pointer-events-none block';
+                // 設定寬度
+                if (options.currentWidth) {
+                    contentEl.style.width = `${options.currentWidth}px`;
+                } else {
+                    contentEl.style.width = '150px'; // 預設
+                }
+            } else {
+                contentEl = document.createElement('div');
+                contentEl.textContent = content;
+                contentEl.style.color = options.color;
+                contentEl.style.fontWeight = 'bold';
+                contentEl.className = 'whitespace-nowrap pointer-events-none font-sans leading-none';
+                // 設定字體大小
+                const size = options.currentFontSize || options.baseSize || 24;
+                contentEl.style.fontSize = `${size}px`;
+            }
+
+            wrapper.appendChild(contentEl);
+            wrapper.appendChild(removeBtn);
+            wrapper.appendChild(confirmBtn);
+            wrapper.appendChild(resizeHandle);
+            els.docContainer.appendChild(wrapper);
+
+            // 如果是新增模式且置中，修正 transform 對 offset 的影響，將其轉為絕對座標
+            if (!existingId) {
+                const rect = wrapper.getBoundingClientRect();
+                const containerRect = els.docContainer.getBoundingClientRect();
+                wrapper.style.transform = 'none';
+                wrapper.style.left = `${(containerRect.width - rect.width) / 2}px`;
+                wrapper.style.top = `${(containerRect.height - rect.height) / 3}px`;
+            }
+
+            // --- 拖曳邏輯 ---
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            const onMove = (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                const clientX = e.clientX || e.touches[0].clientX;
+                const clientY = e.clientY || e.touches[0].clientY;
+                wrapper.style.left = `${initialLeft + (clientX - startX)}px`;
+                wrapper.style.top = `${initialTop + (clientY - startY)}px`;
+            };
+            const onUp = () => isDragging = false;
+            const onDown = (e) => {
+                if(e.target === removeBtn || e.target === confirmBtn || e.target === resizeHandle) return;
+                e.preventDefault();
+                isDragging = true;
+                startX = e.clientX || e.touches[0].clientX;
+                startY = e.clientY || e.touches[0].clientY;
+                initialLeft = wrapper.offsetLeft;
+                initialTop = wrapper.offsetTop;
+            };
+
+            wrapper.addEventListener('mousedown', onDown);
+            wrapper.addEventListener('touchstart', onDown);
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('touchmove', onMove);
+            document.addEventListener('mouseup', onUp);
+            document.addEventListener('touchend', onUp);
+
+            // --- 縮放邏輯 ---
+            let isResizing = false;
+            let resizeStartX, resizeStartWidth, resizeStartFontSize;
+
+            const onResizeMove = (e) => {
+                if (!isResizing) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const clientX = e.clientX || e.touches[0].clientX;
+                const dx = clientX - resizeStartX;
+
+                if (type === 'signature') {
+                    const newWidth = Math.max(50, resizeStartWidth + dx);
+                    contentEl.style.width = `${newWidth}px`;
+                } else {
+                    // 文字縮放：簡單根據水平拖曳比例調整字體
+                    // 假設每移動 2px 增加/減少 1px 字體，或按比例
+                    const scaleFactor = 0.2;
+                    const newSize = Math.max(12, resizeStartFontSize + dx * scaleFactor);
+                    contentEl.style.fontSize = `${newSize}px`;
+                }
+            };
+            const onResizeUp = () => isResizing = false;
+            const onResizeDown = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                isResizing = true;
+                resizeStartX = e.clientX || e.touches[0].clientX;
+                if (type === 'signature') {
+                    resizeStartWidth = contentEl.offsetWidth;
+                } else {
+                    resizeStartFontSize = parseFloat(window.getComputedStyle(contentEl).fontSize);
+                }
+            };
+
+            resizeHandle.addEventListener('mousedown', onResizeDown);
+            resizeHandle.addEventListener('touchstart', onResizeDown);
+            document.addEventListener('mousemove', onResizeMove);
+            document.addEventListener('touchmove', onResizeMove);
+            document.addEventListener('mouseup', onResizeUp);
+            document.addEventListener('touchend', onResizeUp);
+
+            // --- 按鈕事件 ---
+            removeBtn.onclick = async (e) => {
+                e.stopPropagation();
+                if (existingId) {
+                    if (confirm('確定要刪除嗎？')) {
+                        await deleteDoc(doc(db, `signing_rooms/${currentRoomId}/items`, existingId));
+                    } else {
+                        // 取消刪除，恢復原狀
+                        editingItemId = null;
+                        redrawCanvas();
                     }
                 }
+                wrapper.remove();
+                editingItemId = null;
+            };
 
-                const signaturesCollection = collection(db, `signing_rooms/${roomId}/signatures`);
-                if (unsubscribe) unsubscribe();
-                unsubscribe = onSnapshot(signaturesCollection, (snapshot) => {
-                    currentSignatures = snapshot.docs.map(d => ({...d.data(), id: d.id}));
-                    redrawAllSignatures(currentSignatures);
-                    
-                    mySignatureId = null;
-                    const mySig = currentSignatures.find(sig => sig.signerId === currentUser.uid);
-                    if (mySig) {
-                        mySignatureId = mySig.id;
-                        addSignatureBtn.classList.add('hidden');
-                        if (!roomDeadline || new Date() < roomDeadline) {
-                            removeSignatureBtn.classList.remove('hidden');
-                        }
-                    } else if (!roomDeadline || new Date() < roomDeadline) {
-                        addSignatureBtn.classList.remove('hidden');
-                        removeSignatureBtn.classList.add('hidden');
-                    }
-                });
+            confirmBtn.onclick = async (e) => {
+                e.stopPropagation();
+                
+                const rect = wrapper.getBoundingClientRect();
+                const containerRect = els.docContainer.getBoundingClientRect();
+                const contentRect = contentEl.getBoundingClientRect();
 
-                shareLinkInput.value = window.location.href;
+                // 計算相對位置與比例
+                // 使用 wrapper 的 offsetLeft/Top 作為基準
+                const x = wrapper.offsetLeft;
+                const y = wrapper.offsetTop;
+                
+                const itemData = {
+                    type: type,
+                    content: content,
+                    x_percent: x / els.docCanvas.width,
+                    y_percent: y / els.docCanvas.height,
+                    width_percent: contentRect.width / els.docCanvas.width, // 實際顯示寬度
+                    size_percent: parseFloat(contentEl.style.fontSize) / els.docCanvas.width, // 文字字體佔比
+                    color: options.color || null,
+                    // 如果是現有物件，保留原 signerId 與 createdAt
+                    signerId: existingId ? currentItems.find(i=>i.id===existingId).signerId : currentUser.uid,
+                    createdAt: existingId ? currentItems.find(i=>i.id===existingId).createdAt : serverTimestamp()
+                };
+
+                // 清理 DOM
+                wrapper.remove();
+                editingItemId = null;
+
+                if (existingId) {
+                    await updateDoc(doc(db, `signing_rooms/${currentRoomId}/items`, existingId), itemData);
+                } else {
+                    await addDoc(collection(db, `signing_rooms/${currentRoomId}/items`), itemData);
+                }
+                redrawCanvas();
             };
         }
 
-        function setupDocumentCanvas() {
-            if (documentContainer.clientWidth === 0) return;
-            const containerWidth = documentContainer.clientWidth;
-            const scale = containerWidth / originalImage.width;
-            documentCanvas.width = containerWidth;
-            documentCanvas.height = originalImage.height * scale;
-            documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
+        // --- 模態框操作 ---
+
+        function openSigModal() {
+            els.sigModal.classList.remove('hidden');
+            setupSigCanvas();
+        }
+        function openTextModal() {
+            els.textModal.classList.remove('hidden');
+            document.getElementById('text-content').value = '';
+            document.getElementById('text-content').focus();
+        }
+        function closeModals() {
+            els.sigModal.classList.add('hidden');
+            els.textModal.classList.add('hidden');
         }
 
-        function redrawAllSignatures(signatures) {
-            if(documentCanvas.width === 0 || documentCanvas.height === 0) setupDocumentCanvas();
-            if(documentCanvas.width === 0) return;
-            documentCtx.clearRect(0, 0, documentCanvas.width, documentCanvas.height);
-            documentCtx.drawImage(originalImage, 0, 0, documentCanvas.width, documentCanvas.height);
+        function setupSigCanvas() {
+            const rect = els.sigPad.getBoundingClientRect();
+            els.sigPad.width = rect.width;
+            els.sigPad.height = rect.height;
+            sigCtx.lineCap = 'round';
+            sigCtx.lineJoin = 'round';
+            sigCtx.strokeStyle = document.querySelector('input[name="pen-color"]:checked').value;
+            sigCtx.lineWidth = document.getElementById('pen-width').value;
+        }
+
+        function clearSigPad() {
+            sigCtx.clearRect(0, 0, els.sigPad.width, els.sigPad.height);
+        }
+
+        function confirmSignature() {
+            const pixelBuffer = sigCtx.getImageData(0, 0, els.sigPad.width, els.sigPad.height).data;
+            if (!pixelBuffer.some(channel => channel !== 0)) {
+                document.getElementById('signature-error').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('signature-error').classList.add('hidden');
             
-            signatures.forEach(sigData => {
-                const sigImg = new Image();
-                sigImg.src = sigData.signatureDataUrl;
-                sigImg.onload = () => {
-                    const x = sigData.x_percent * documentCanvas.width;
-                    const y = sigData.y_percent * documentCanvas.height;
-                    const width = sigData.width_percent * documentCanvas.width;
-                    const height = (width / sigImg.width) * sigImg.height;
-                    documentCtx.drawImage(sigImg, x, y, width, height);
-                };
+            const dataUrl = els.sigPad.toDataURL('image/png');
+            createEditorOverlay('signature', dataUrl); // 新增模式
+            closeModals();
+        }
+
+        function confirmText() {
+            const text = document.getElementById('text-content').value;
+            if (!text.trim()) return;
+            const size = document.getElementById('text-size').value;
+            
+            createEditorOverlay('text', text, {
+                color: selectedTextColor,
+                baseSize: parseInt(size)
+            }); // 新增模式
+            closeModals();
+        }
+
+        // 簽名板繪圖事件 (保留原邏輯)
+        let isDrawing = false, lastX = 0, lastY = 0;
+        function getPointerPos(e) {
+            const rect = els.sigPad.getBoundingClientRect();
+            const clientX = e.clientX || e.touches[0].clientX;
+            const clientY = e.clientY || e.touches[0].clientY;
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+        ['mousedown', 'touchstart'].forEach(evt => els.sigPad.addEventListener(evt, (e) => {
+            isDrawing = true; 
+            const pos = getPointerPos(e); 
+            [lastX, lastY] = [pos.x, pos.y];
+            e.preventDefault();
+        }, {passive: false}));
+        ['mousemove', 'touchmove'].forEach(evt => els.sigPad.addEventListener(evt, (e) => {
+            if (!isDrawing) return;
+            e.preventDefault();
+            const { x, y } = getPointerPos(e);
+            sigCtx.beginPath();
+            sigCtx.moveTo(lastX, lastY);
+            sigCtx.lineTo(x, y);
+            sigCtx.stroke();
+            [lastX, lastY] = [x, y];
+        }, {passive: false}));
+        ['mouseup', 'touchend', 'mouseout'].forEach(evt => els.sigPad.addEventListener(evt, () => isDrawing = false));
+
+        // --- 工具函式 ---
+
+        function downloadSignedDocument() {
+            // 下載前強制重繪，確保所有編輯框都已關閉/確認
+            if (editingItemId) {
+                alert('請先確認或取消當前的編輯項目 (打勾或刪除)');
+                return;
+            }
+            redrawCanvas();
+            const link = document.createElement('a');
+            link.download = `signed-document-${currentRoomId}.png`;
+            link.href = els.docCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function copyShareLink() {
+            els.shareLink.select();
+            document.execCommand('copy');
+            const btn = document.getElementById('copy-link-btn');
+            const originalText = btn.textContent;
+            btn.textContent = '已複製!';
+            setTimeout(() => btn.textContent = originalText, 2000);
+        }
+
+        function updateMyItemsList() {
+            els.myItemsList.innerHTML = '';
+            // 顯示我的項目 + 如果我是發起人，顯示所有項目但標註
+            const isInitiator = currentUser.uid === initiatorId;
+            let itemsToShow = isInitiator ? currentItems : currentItems.filter(i => i.signerId === currentUser.uid);
+            
+            if (itemsToShow.length === 0) {
+                els.myItemsList.innerHTML = '<li class="text-xs text-gray-400 italic text-center py-4">無項目</li>';
+                return;
+            }
+
+            itemsToShow.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.className = 'flex items-center justify-between bg-white p-2 rounded border border-gray-200 shadow-sm';
+                
+                let label = '';
+                if (item.type === 'signature') label = `簽名`;
+                else label = `文字: ${item.content}`;
+
+                // 如果是管理員看別人的，加個標註
+                if (isInitiator && item.signerId !== currentUser.uid) {
+                    label += ' (他人)';
+                }
+
+                li.innerHTML = `
+                    <span class="text-xs font-medium text-gray-700 truncate w-32 cursor-pointer hover:text-brand-600" onclick="focusItem('${item.id}')">${label}</span>
+                    <button class="text-red-500 hover:text-red-700 p-1" onclick="deleteItem('${item.id}')">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                `;
+                els.myItemsList.appendChild(li);
             });
         }
         
-        function handleFileSelect(e) {
-            const file = e.target.files[0];
-            if(file) {
-                fileNameDisplay.textContent = `已選擇檔案：${file.name}`;
-                createRoomBtn.disabled = false;
-            } else {
-                fileNameDisplay.textContent = '';
-                createRoomBtn.disabled = true;
+        window.deleteItem = async (itemId) => {
+            if(confirm('確定要刪除此項目嗎？')) {
+                await deleteDoc(doc(db, `signing_rooms/${currentRoomId}/items`, itemId));
             }
-        }
-        
-        function openSignatureModal() {
-            if (roomDeadline && new Date() > roomDeadline) {
-                deadlineAlertModal.classList.remove('hidden');
-                return;
+        };
+
+        // 從清單點擊觸發編輯
+        window.focusItem = (itemId) => {
+            const item = currentItems.find(i => i.id === itemId);
+            if(item && !editingItemId && checkDeadline()) {
+                openItemEditor(item);
             }
-            signatureModal.classList.remove('hidden');
-            const sigCtx = setupCanvas(signaturePad);
-            sigCtx.strokeStyle = '#000000'; sigCtx.lineWidth = 2;
-            sigCtx.lineCap = 'round'; sigCtx.lineJoin = 'round';
-        }
-        
-        function confirmSignature() {
-            if (isCanvasBlank(signaturePad)) { signatureEmptyError.classList.remove('hidden'); return; }
-            signatureEmptyError.classList.add('hidden');
-            const signatureDataUrl = signaturePad.toDataURL('image/png');
-            signatureModal.classList.add('hidden');
-            addDraggableSignature(signatureDataUrl);
-        }
-        
-        function addDraggableSignature(signatureDataUrl) {
-            const draggableSignature = document.createElement('img');
-            draggableSignature.src = signatureDataUrl;
-            draggableSignature.className = 'absolute top-1/4 left-1/4 w-48 cursor-grab rounded-md dragging';
-            documentContainer.appendChild(draggableSignature);
-            
-            const signatureInitialWidth = documentCanvas.width * 0.25;
-            draggableSignature.style.width = `${signatureInitialWidth}px`;
-            draggableSignature.style.left = `${(documentCanvas.width - signatureInitialWidth) / 2}px`;
-            draggableSignature.style.top = `${documentCanvas.height / 3}px`;
-            
-            makeDraggable(draggableSignature);
-            
-            addSignatureBtn.textContent = '將簽名放置於此';
-            addSignatureBtn.onclick = () => placeSignature(draggableSignature);
-        }
-        
-        async function placeSignature(element) {
-            const sigRect = element.getBoundingClientRect(); 
-            const canvasRect = documentCanvas.getBoundingClientRect();
-            const signatureData = {
-                signatureDataUrl: element.src,
-                x_percent: (sigRect.left - canvasRect.left) / canvasRect.width,
-                y_percent: (sigRect.top - canvasRect.top) / canvasRect.height,
-                width_percent: sigRect.width / canvasRect.width,
-                signerId: currentUser.uid, 
-                createdAt: serverTimestamp()
-            };
-            const signaturesCollection = collection(db, `signing_rooms/${currentRoomId}/signatures`);
-            await addDoc(signaturesCollection, signatureData);
-            element.remove();
-            addSignatureBtn.textContent = '新增我的簽名'; 
-            addSignatureBtn.onclick = openSignatureModal;
+        };
+
+        async function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
         }
 
-        async function removeMySignature() {
-            if (!mySignatureId) {
-                alert("找不到您的簽名紀錄。");
-                return;
-            }
-            if (confirm("您確定要移除您的簽名嗎？")) {
-                const docRef = doc(db, `signing_rooms/${currentRoomId}/signatures`, mySignatureId);
-                await deleteDoc(docRef);
-            }
+        async function renderPdfToImage(file) {
+            const buffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport }).promise;
+            return canvas.toDataURL('image/png');
         }
 
-        function makeDraggable(element) {
-            let isDragging = false, offsetX, offsetY;
-            const startDrag = (e) => {
-                e.preventDefault(); isDragging = true; element.classList.add('dragging');
-                const clientX = e.clientX || e.touches[0].clientX; const clientY = e.clientY || e.touches[0].clientY;
-                offsetX = clientX - element.getBoundingClientRect().left; offsetY = clientY - element.getBoundingClientRect().top;
-            };
-            const drag = (e) => {
-                if (!isDragging) return; e.preventDefault();
-                const containerRect = documentContainer.getBoundingClientRect();
-                const clientX = e.clientX || e.touches[0].clientX; const clientY = e.clientY || e.touches[0].clientY;
-                let newLeft = clientX - containerRect.left - offsetX; let newTop = clientY - containerRect.top - offsetY;
-                if (newLeft < 0) newLeft = 0; if (newTop < 0) newTop = 0;
-                if (newLeft + element.clientWidth > containerRect.width) newLeft = containerRect.width - element.clientWidth;
-                if (newTop + element.clientHeight > containerRect.height) newTop = containerRect.height - element.clientHeight;
-                element.style.left = `${newLeft}px`; element.style.top = `${newTop}px`;
-            };
-            const endDrag = () => { if(isDragging) { isDragging = false; element.classList.remove('dragging'); } };
-            element.addEventListener('mousedown', startDrag); document.addEventListener('mousemove', drag); document.addEventListener('mouseup', endDrag);
-            element.addEventListener('touchstart', startDrag); document.addEventListener('touchmove', drag); document.addEventListener('touchend', endDrag);
-        }
-        
-        function downloadSignedDocument() {
-            const link = document.createElement('a');
-            link.download = `signed-document-${currentRoomId}.png`;
-            link.href = documentCanvas.toDataURL('image/png');
-            link.click();
-        }
-        
-        function copyShareLink() {
-            shareLinkInput.select();
-            document.execCommand('copy');
-            copyLinkBtn.textContent = '已複製!';
-            setTimeout(() => { copyLinkBtn.textContent = '複製'; }, 2000);
-        }
-
-        function setupCanvas(canvas) {
-            const dpr = window.devicePixelRatio || 1; const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
-            const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); return ctx;
-        }
-        
-        function clearSignaturePad() {
-            signatureCtx.clearRect(0, 0, signaturePad.width, signaturePad.height);
-            signatureEmptyError.classList.add('hidden');
-        }
-
-        function isCanvasBlank(canvas) {
-            return !canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.some(channel => channel !== 0);
-        }
-        
-        let isDrawing = false, lastX = 0, lastY = 0;
-        function getPointerPos(canvas, evt) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / (rect.width * (window.devicePixelRatio || 1));
-            const scaleY = canvas.height / (rect.height * (window.devicePixelRatio || 1));
-            const clientX = evt.clientX || evt.touches[0].clientX; const clientY = evt.clientY || evt.touches[0].clientY;
-            return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
-        }
-        function draw(e) {
-            if (!isDrawing) return; e.preventDefault();
-            const { x, y } = getPointerPos(signaturePad, e);
-            signatureCtx.beginPath(); signatureCtx.moveTo(lastX, lastY); signatureCtx.lineTo(x, y); signatureCtx.stroke();
-            [lastX, lastY] = [x, y];
-        }
-        ['mousedown', 'touchstart'].forEach(evt => signaturePad.addEventListener(evt, (e) => {
-            isDrawing = true; const pos = getPointerPos(signaturePad, e); [lastX, lastY] = [pos.x, pos.y];
-        }));
-        ['mousemove', 'touchmove'].forEach(evt => signaturePad.addEventListener(evt, draw));
-        ['mouseup', 'mouseout', 'touchend'].forEach(evt => signaturePad.addEventListener(evt, () => isDrawing = false));
-        
-        window.addEventListener('resize', () => {
-            if (originalImage.src && !roomView.classList.contains('hidden')) {
-                redrawAllSignatures(currentSignatures);
-            }
-        });
     </script>
 </body>
 </html>
-
